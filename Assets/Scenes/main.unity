@@ -15652,6 +15652,7 @@ GameObject:
   - component: {fileID: 555286894}
   - component: {fileID: 555286895}
   - component: {fileID: 555286896}
+  - component: {fileID: 555286897}
   m_Layer: 0
   m_Name: RosTcpComponents
   m_TagString: Untagged
@@ -16200,6 +16201,40 @@ MonoBehaviour:
   TimeStep: 0
   EnsureThreadSafety: 0
   phase_name: 
+--- !u!114 &555286897
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 555286863}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a3fcb823bcff9074a854c0a8aa3b38f4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  topicName: /amir/right_hand_mecanum_input
+  queueSize: 10
+  publishHz: 30
+  rightHandTrackingTransform: {fileID: 0}
+  rightOvrHand: {fileID: 0}
+  useOvrHand: 1
+  useMrtkHandFallback: 1
+  useControllerGripFallback: 1
+  ovrGripStrengthThreshold: 0.75
+  controllerGripThreshold: 0.75
+  mrtkFingerToPalmClosedDistance: 0.095
+  mrtkClosedFingerCount: 3
+  holdSeconds: 3
+  stopPublishSeconds: 0.3
+  maxDeltaX: 0.2
+  maxDeltaZ: 0.2
+  maxRollDeltaRad: 0.8
+  popupCanvas: {fileID: 0}
+  popupText: {fileID: 0}
+  popupViewportOffset: {x: 0, y: -0.08, z: 0.8}
+  popupSize: {x: 620, y: 170}
+  popupCanvasScale: 0.0018
 --- !u!1001 &555887933
 PrefabInstance:
   m_ObjectHideFlags: 0
