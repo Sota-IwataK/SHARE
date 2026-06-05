@@ -43,6 +43,9 @@ namespace RosSharp.RosBridgeClient
 
         protected void ConnectAndWait()
         {
+            if (string.IsNullOrWhiteSpace(RosBridgeServerUrl))
+                return;
+
             RosSocket = ConnectToRos(protocol, RosBridgeServerUrl, OnConnected, OnClosed, Serializer);
 
             if (!IsConnected.WaitOne(SecondsTimeout * 1000))
@@ -60,7 +63,8 @@ namespace RosSharp.RosBridgeClient
 
         private void OnApplicationQuit()
         {
-            RosSocket.Close();
+            if (RosSocket != null)
+                RosSocket.Close();
         }
 
         private void OnConnected(object sender, EventArgs e)

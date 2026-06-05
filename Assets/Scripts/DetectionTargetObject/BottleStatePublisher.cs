@@ -1,26 +1,24 @@
-using System.Collections.Generic;
+using RosMessageTypes.Std;
 using UnityEngine;
-using RosSharp.RosBridgeClient;
-using RosSharp.RosBridgeClient.MessageTypes.Std;
 
-public class BottleStatePublisher : UnityPublisher<Float32MultiArray>
+public class BottleStatePublisher : RosTcpPublisher<Float32MultiArrayMsg>
 {
-    [Tooltip("SignalManager をセットしてください")]
+    [Tooltip("Bottle state source")]
     public BottleSignalManager BottleSignalManager;
 
-    private Float32MultiArray message;
+    private Float32MultiArrayMsg message;
 
     protected override void Start()
     {
         base.Start();
-        message = new Float32MultiArray
+        message = new Float32MultiArrayMsg
         {
-            layout = new MultiArrayLayout
+            layout = new MultiArrayLayoutMsg
             {
                 dim = new[]
                 {
-                    new MultiArrayDimension { label = "bottles", size = 0, stride = 0 },
-                    new MultiArrayDimension { label = "fields",  size = 9, stride = 9 }
+                    new MultiArrayDimensionMsg { label = "bottles", size = 0, stride = 0 },
+                    new MultiArrayDimensionMsg { label = "fields", size = 9, stride = 9 }
                 },
                 data_offset = 0
             },
@@ -35,17 +33,17 @@ public class BottleStatePublisher : UnityPublisher<Float32MultiArray>
 
     public void PublishBottleStates()
     {
-        // ← Use the 'signals' instance, not the type!
+        if (BottleSignalManager == null || message == null) return;
+
         var infos = BottleSignalManager.signals;
-        int n     = infos.Count;
+        int n = infos.Count;
         int total = n * 9;
 
-        // 1) data 配列を作る
         float[] data = new float[total];
         for (int i = 0; i < n; i++)
         {
             var info = infos[i];
-            data[i * 9 + 0] = info.bottleID;    // your ID field
+            data[i * 9 + 0] = info.bottleID;
             data[i * 9 + 1] = info.position.x;
             data[i * 9 + 2] = info.position.y;
             data[i * 9 + 3] = info.position.z;
@@ -56,12 +54,8 @@ public class BottleStatePublisher : UnityPublisher<Float32MultiArray>
             data[i * 9 + 8] = info.s_accel;
         }
 
-        // 2) layout を更新
-        message.layout.dim[0].size   = (uint)n;
+        message.layout.dim[0].size = (uint)n;
         message.layout.dim[0].stride = (uint)total;
-        // dim[1] は固定 (9)
-
-        // 3) data をセットして Publish
         message.data = data;
         Publish(message);
     }

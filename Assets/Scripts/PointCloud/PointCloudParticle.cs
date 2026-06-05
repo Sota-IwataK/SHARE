@@ -1,7 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using RosSharp.RosBridgeClient;
 
 
 public class PointCloudParticle : MonoBehaviour
@@ -18,7 +17,7 @@ public class PointCloudParticle : MonoBehaviour
     public Transform offset;
     public Texture2D pointTexture;
 
-    public ParticleSystem pointCloudParticleSystem; // Particle SystemをアタッチしたGameObject
+    public ParticleSystem pointCloudParticleSystem; // Particle System繧偵い繧ｿ繝�繝√＠縺檬ameObject
 
     private void Start()
     {
@@ -27,7 +26,7 @@ public class PointCloudParticle : MonoBehaviour
         Material pointCloudMaterial = new Material(Shader.Find("Custom/PointCloudShader"));
         pointCloudMaterial.SetTexture("_MainTex", pointTexture);
 
-        float adjustedPointSize = 1000f; // 適切な値に調整してください
+        float adjustedPointSize = 1000f; // 驕ｩ蛻�縺ｪ蛟､縺ｫ隱ｿ謨ｴ縺励※縺上□縺輔＞
         pointCloudMaterial.SetFloat("_PointSize", adjustedPointSize);
 
         MeshRenderer meshRenderer = gameObject.AddComponent<MeshRenderer>();

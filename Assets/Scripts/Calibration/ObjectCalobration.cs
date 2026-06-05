@@ -25,6 +25,18 @@ public class ObjectCalobration : MonoBehaviour
 
     public void CalibrationButton()
     {
+        if (calibration == null || calibration.messageData == null)
+        {
+            Debug.LogError("[ObjectCalobration] Calibration subscriber data is not available.");
+            return;
+        }
+
+        if (objectGeneration == null || selectObject == null)
+        {
+            Debug.LogError("[ObjectCalobration] objectGeneration or selectObject is not assigned.");
+            return;
+        }
+
         positionList = new List<Vector3>();
         data = calibration.messageData;
         objectList = objectGeneration.before_obj;
@@ -57,6 +69,7 @@ public class ObjectCalobration : MonoBehaviour
 
         ChangeObjectColor();
         selectObject.CalibrationMode = false;
+        selectObject.MarkCalibrationComplete();
         
     }
 

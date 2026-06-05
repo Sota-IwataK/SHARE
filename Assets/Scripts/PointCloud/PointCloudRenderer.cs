@@ -2,19 +2,18 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using System.IO;
-using RosSharp.RosBridgeClient;
 using System.Diagnostics;
 public class PointCloudRenderer : MonoBehaviour
 {
     public PointCloudSubscriber subscriber;
-    public MockPointCloudSubscriber mockSubscriber;  // MockPointCloudSubscriber QÆ
+    public MockPointCloudSubscriber mockSubscriber;  // MockPointCloudSubscriber å‚ç…§
 
     Mesh mesh;
     MeshRenderer meshRenderer;
     MeshFilter mf;
     public Material _material;
 
-    public bool useMockData = false;  // ƒ‚ƒbƒNƒf[ƒ^‚ğg—p‚·‚é‚©‚Ç‚¤‚©
+    public bool useMockData = false;  // ãƒ¢ãƒƒã‚¯ãƒ‡ãƒ¼ã‚¿ã‚’ä½¿ç”¨ã™ã‚‹ã‹ã©ã†ã‹
     public int mockWidth;
     public int mockHeight;
     public float mockSpacing;
@@ -28,14 +27,14 @@ public class PointCloudRenderer : MonoBehaviour
     private Color[] colours = new Color[] { new Color(1f, 0f, 0f), new Color(0f, 1f, 0f) };
     private Vector2 size;
 
-    public Transform offset; // VR‚Å“_ŒQ‚ÌƒIƒŠƒWƒ“‚ğ’²®‚·‚é‚½‚ß‚ÌƒIƒuƒWƒFƒNƒg
+    public Transform offset; // VRã§ç‚¹ç¾¤ã®ã‚ªãƒªã‚¸ãƒ³ã‚’èª¿æ•´ã™ã‚‹ãŸã‚ã®ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆ
     public Vector3 BBoxSize;
     public Vector3 BBoxPos;
     public bool StopGetPointCloud = false;
 
     void Start()
     {
-        // ˆÀ‘S‚É•K—v‚ÈƒRƒ“ƒ|[ƒlƒ“ƒg‚ğæ“¾E¶¬
+        // å®‰å…¨ã«å¿…è¦ãªã‚³ãƒ³ãƒãƒ¼ãƒãƒ³ãƒˆã‚’å–å¾—ãƒ»ç”Ÿæˆ
         meshRenderer = GetComponent<MeshRenderer>();
         if (meshRenderer == null)
             meshRenderer = gameObject.AddComponent<MeshRenderer>();
@@ -44,7 +43,7 @@ public class PointCloudRenderer : MonoBehaviour
         if (mf == null)
             mf = gameObject.AddComponent<MeshFilter>();
 
-        // ƒ}ƒeƒŠƒAƒ‹‚ªİ’è‚³‚ê‚Ä‚¢‚é‚©ƒ`ƒFƒbƒN
+        // ãƒãƒ†ãƒªã‚¢ãƒ«ãŒè¨­å®šã•ã‚Œã¦ã„ã‚‹ã‹ãƒã‚§ãƒƒã‚¯
         if (_material != null)
         {
             meshRenderer.material = new Material(_material);
@@ -59,7 +58,7 @@ public class PointCloudRenderer : MonoBehaviour
             indexFormat = UnityEngine.Rendering.IndexFormat.UInt32
         };
 
-        // PointCloudSubscriber ‚ªw’è‚³‚ê‚Ä‚¢‚È‚¯‚ê‚Î©“®æ“¾
+        // PointCloudSubscriber ãŒæŒ‡å®šã•ã‚Œã¦ã„ãªã‘ã‚Œã°è‡ªå‹•å–å¾—
         if (subscriber == null)
         {
             subscriber = GetComponent<PointCloudSubscriber>();
@@ -69,7 +68,7 @@ public class PointCloudRenderer : MonoBehaviour
             }
         }
 
-        // MockPointCloudSubscriber ‚ÌQÆİ’è
+        // MockPointCloudSubscriber ã®å‚ç…§è¨­å®š
         if (mockSubscriber == null && useMockData)
         {
             mockSubscriber = GetComponent<MockPointCloudSubscriber>();
@@ -91,14 +90,14 @@ public class PointCloudRenderer : MonoBehaviour
 
     IEnumerator UpdateMesh()
     {
-        // useMockData ‚ª true ‚Ìê‡‚Íƒ‚ƒbƒNƒf[ƒ^‚ğg—p
+        // useMockData ãŒ true ã®å ´åˆã¯ãƒ¢ãƒƒã‚¯ãƒ‡ãƒ¼ã‚¿ã‚’ä½¿ç”¨
         if (useMockData && mockSubscriber != null)
         {
             positions = mockSubscriber.GetPCL();
             colours = mockSubscriber.GetPCLColor();
             size = mockSubscriber.GetSize();
         }
-        // useMockData ‚ª false ‚Ìê‡‚Í’Êí‚Ì PointCloudSubscriber ‚Ìƒf[ƒ^‚ğg—p
+        // useMockData ãŒ false ã®å ´åˆã¯é€šå¸¸ã® PointCloudSubscriber ã®ãƒ‡ãƒ¼ã‚¿ã‚’ä½¿ç”¨
         else if (subscriber != null)
         {
             positions = subscriber.GetPCL();
@@ -137,7 +136,7 @@ public class PointCloudRenderer : MonoBehaviour
             }
             center /= positions.Length;
 
-            // Bounding Box ‚ÌŒvZ
+            // Bounding Box ã®è¨ˆç®—
             float minx = float.MaxValue;
             float miny = float.MaxValue;
             float minz = float.MaxValue;

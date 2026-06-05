@@ -1,5 +1,4 @@
 using UnityEngine;
-using RosSharp.RosBridgeClient;
 
 public class BottleHitMapper : MonoBehaviour
 {

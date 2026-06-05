@@ -194,7 +194,7 @@ Shader "Hidden/ltspass_lite_transparent"
         HLSLINCLUDE
             #define LIL_SRP_VERSION_MAJOR 14
             #define LIL_SRP_VERSION_MINOR 0
-            #define LIL_SRP_VERSION_PATCH 11
+            #define LIL_SRP_VERSION_PATCH 12
 
             #pragma target 4.5
             #pragma exclude_renderers d3d11_9x
@@ -644,7 +644,7 @@ Shader "Hidden/ltspass_lite_transparent"
         HLSLINCLUDE
             #define LIL_SRP_VERSION_MAJOR 14
             #define LIL_SRP_VERSION_MINOR 0
-            #define LIL_SRP_VERSION_PATCH 11
+            #define LIL_SRP_VERSION_PATCH 12
 
             #pragma exclude_renderers d3d11_9x
             #pragma fragmentoption ARB_precision_hint_fastest

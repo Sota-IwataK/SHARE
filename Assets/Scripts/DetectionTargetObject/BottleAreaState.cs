@@ -1,9 +1,6 @@
 
-using RosSharp.RosBridgeClient;
-using RosSharp.Urdf;
 using System.Collections.Generic;
 using UnityEngine;
-using RosSharp.RosBridgeClient.MessageTypes.Std;   // Float32MultiArray
 
 public class BottleAreaState : MonoBehaviour
 {

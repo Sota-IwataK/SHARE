@@ -1,19 +1,11 @@
-﻿using System.Collections;
-using System.Collections.Generic;
+using RosMessageTypes.Std;
 using UnityEngine;
-using RosSharp.RosBridgeClient.MessageTypes.Std;
 
-public class CalibrationFloat32Subscriber : RosSharp.RosBridgeClient.UnitySubscriber<RosSharp.RosBridgeClient.MessageTypes.Std.Float32MultiArray>
+public class CalibrationFloat32Subscriber : RosTcpSubscriber<Float32MultiArrayMsg>
 {
-
     public float[] messageData = new float[5];
 
-    protected override void Start()
-    {
-        base.Start();
-    }
-
-    protected override void ReceiveMessage(Float32MultiArray message)
+    protected override void ReceiveMessage(Float32MultiArrayMsg message)
     {
         messageData = message.data;
     }

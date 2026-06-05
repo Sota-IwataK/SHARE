@@ -1,56 +1,49 @@
+using RosMessageTypes.Sensor;
+using RosMessageTypes.Std;
 using UnityEngine;
-using RosSharp.RosBridgeClient;
-using RosSharp.RosBridgeClient.MessageTypes.Sensor;
-using System.Collections;
-// 名前空間衝突の回避
-using SensorImage = RosSharp.RosBridgeClient.MessageTypes.Sensor.Image;
 
-public class ImagePublisher3 : UnityPublisher<SensorImage>
+public class ImagePublisher3 : RosTcpPublisher<ImageMsg>
 {
     public Texture2D texture;
-    private SensorImage imageMessage;
+    public string FrameId = "";
+
+    private ImageMsg imageMessage;
 
     protected override void Start()
     {
-        base.Start();  // UnityPublisher の Start
+        base.Start();
         InitializeImageMessage();
     }
 
     private void InitializeImageMessage()
     {
-        if (texture != null)
+        if (texture == null) return;
+
+        imageMessage = new ImageMsg
         {
-            imageMessage = new SensorImage
-            {
-                height = (uint)texture.height,
-                width = (uint)texture.width,
-                encoding = "png",
-                is_bigendian = 0,
-                step = (uint)(texture.width * 3)
-            };
-        }
+            header = new HeaderMsg { frame_id = FrameId },
+            height = (uint)texture.height,
+            width = (uint)texture.width,
+            encoding = "png",
+            is_bigendian = 0,
+            step = (uint)(texture.width * 3),
+            data = new byte[0]
+        };
     }
 
-    void Update()
+    private void Update()
     {
-        if (texture == null)
-            return;
+        if (texture == null) return;
 
         if (imageMessage == null)
             InitializeImageMessage();
 
-        // PNGエンコード
-        byte[] imageData = texture.EncodeToPNG();
-        imageMessage.data = imageData;
-
-        // Publish
-        try
+        imageMessage.header = new HeaderMsg
         {
-            Publish(imageMessage);
-        }
-        catch (System.Exception ex)
-        {
-            UnityEngine.Debug.LogError($"Publish failed: {ex.Message}");
-        }
+            stamp = RosTcpUtility.GetRosTime(),
+            frame_id = FrameId
+        };
+        imageMessage.data = texture.EncodeToPNG();
+        Publish(imageMessage);
     }
 }

@@ -1,21 +1,14 @@
-using RosSharp.RosBridgeClient.MessageTypes.Std;
-using System.Collections;
-using System.Collections.Generic;
+using RosMessageTypes.Std;
 using UnityEngine;
 
-public class CubeSlamSubscriber : RosSharp.RosBridgeClient.UnitySubscriber<RosSharp.RosBridgeClient.MessageTypes.Std.Float32MultiArray>
+public class CubeSlamSubscriber : RosTcpSubscriber<Float32MultiArrayMsg>
 {
     public GameObject objectGeneration;
     public float[] messageData = new float[5];
 
-    protected override void Start()
-    {
-        base.Start();
-    }
-
-    protected override void ReceiveMessage(Float32MultiArray message)
+    protected override void ReceiveMessage(Float32MultiArrayMsg message)
     {
         messageData = message.data;
-        objectGeneration.SetActive(true);
+        if (objectGeneration != null) objectGeneration.SetActive(true);
     }
 }

@@ -1,4 +1,4 @@
-﻿using System.Collections;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using TMPro;
@@ -42,7 +42,7 @@ public class OperationController : MonoBehaviour
 
     public void operationButton()
     {
-        //rosConnector.GetComponent<RosSharp.RosBridgeClient.BaseMovePublisher>().enabled = false;
+        //rosConnector.GetComponent<BaseMovePublisher>().enabled = false;
         //mark.SetActive(true);
         //OperationUI.text = "Start Operation";
         Invoke("operation", 3f);
@@ -53,11 +53,11 @@ public class OperationController : MonoBehaviour
     {
         Debug.Log("=== OPERATION START ===");
 
-        rosConnector.GetComponent<RosSharp.RosBridgeClient.handPosePublisher>().enabled = true;
-        rosConnector.GetComponent<RosSharp.RosBridgeClient.airTapPublisher>().enabled = true;
+        rosConnector.GetComponent<handPosePublisher>().enabled = true;
+        rosConnector.GetComponent<airTapPublisher>().enabled = true;
         rosConnector.GetComponent<Float32MultiSubscriber>().enabled = true;
-        // rosConnector.GetComponent<RosSharp.RosBridgeClient.ZRotationPublisher>().enabled = true;
-        rosConnector.GetComponent<RosSharp.RosBridgeClient.Phase_name_Subscriber>().enabled = true;
+        // rosConnector.GetComponent<ZRotationPublisher>().enabled = true;
+        rosConnector.GetComponent<Phase_name_Subscriber>().enabled = true;
         rosConnector.GetComponent<BottleStatePublisher>().enabled = true;
 
         

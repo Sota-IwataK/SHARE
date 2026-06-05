@@ -1,9 +1,5 @@
 using UnityEngine;
 using TMPro;
-using RosSharp.RosBridgeClient;
-using RosSharp.Urdf;
-using System.Collections.Generic;
-using RosSharp.RosBridgeClient.MessageTypes.Std;
 
 public class Phase_name_Show : MonoBehaviour
 {

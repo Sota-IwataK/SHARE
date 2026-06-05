@@ -641,7 +641,7 @@ Shader "_lil/lilToonMulti"
         HLSLINCLUDE
             #define LIL_SRP_VERSION_MAJOR 14
             #define LIL_SRP_VERSION_MINOR 0
-            #define LIL_SRP_VERSION_PATCH 11
+            #define LIL_SRP_VERSION_PATCH 12
 
             #pragma target 4.5
             #pragma fragmentoption ARB_precision_hint_fastest
@@ -1087,7 +1087,7 @@ Shader "_lil/lilToonMulti"
         HLSLINCLUDE
             #define LIL_SRP_VERSION_MAJOR 14
             #define LIL_SRP_VERSION_MINOR 0
-            #define LIL_SRP_VERSION_PATCH 11
+            #define LIL_SRP_VERSION_PATCH 12
 
             #pragma target 3.5
             #pragma fragmentoption ARB_precision_hint_fastest

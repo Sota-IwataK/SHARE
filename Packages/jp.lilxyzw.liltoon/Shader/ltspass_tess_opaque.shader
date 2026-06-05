@@ -748,7 +748,7 @@ Shader "Hidden/ltspass_tess_opaque"
             #pragma skip_variants LIGHTMAP_ON DYNAMICLIGHTMAP_ON LIGHTMAP_SHADOW_MIXING SHADOWS_SHADOWMASK DIRLIGHTMAP_COMBINED _MIXED_LIGHTING_SUBTRACTIVE
             #define LIL_SRP_VERSION_MAJOR 14
             #define LIL_SRP_VERSION_MINOR 0
-            #define LIL_SRP_VERSION_PATCH 11
+            #define LIL_SRP_VERSION_PATCH 12
 
             #define LIL_TESSELLATION
             #pragma target 5.0
@@ -1239,7 +1239,7 @@ Shader "Hidden/ltspass_tess_opaque"
             #pragma skip_variants LIGHTMAP_ON DYNAMICLIGHTMAP_ON LIGHTMAP_SHADOW_MIXING SHADOWS_SHADOWMASK DIRLIGHTMAP_COMBINED _MIXED_LIGHTING_SUBTRACTIVE
             #define LIL_SRP_VERSION_MAJOR 14
             #define LIL_SRP_VERSION_MINOR 0
-            #define LIL_SRP_VERSION_PATCH 11
+            #define LIL_SRP_VERSION_PATCH 12
 
             #define LIL_TESSELLATION
             #pragma target 5.0

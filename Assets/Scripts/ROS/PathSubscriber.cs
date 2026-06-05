@@ -1,28 +1,14 @@
-using System.Collections;
-using System.Collections.Generic;
+using RosMessageTypes.Nav;
 using UnityEngine;
-using RosSharp.RosBridgeClient;
-using RosSharp.RosBridgeClient.MessageTypes.Geometry;
-using RosSharp.RosBridgeClient.MessageTypes.Nav;
 
-public class PathSubscriber : UnitySubscriber<RosSharp.RosBridgeClient.MessageTypes.Nav.Path>
+public class PathSubscriber : RosTcpSubscriber<PathMsg>
 {
+    public PathMsg messageData;
 
-
-    public Path messageData;
-    protected override void Start()
-    {
-        base.Start();
-    }
-
-    protected override void ReceiveMessage(Path message)
+    protected override void ReceiveMessage(PathMsg message)
     {
         Debug.Log("Received Path Message");
-
         Debug.Log(message.poses.Length);
         messageData = message;
-
     }
-
-
 }

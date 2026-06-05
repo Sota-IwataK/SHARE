@@ -4,7 +4,7 @@ using UnityEngine;
 
 public class UpdateYouBotTransform : MonoBehaviour
 {
-    [SerializeField] private RosSharp.RosBridgeClient.YouBotPosSubscriber youBotPosSubscriber;
+    [SerializeField] private YouBotPosSubscriber youBotPosSubscriber;
 
     private Vector3 messagePosition;
     private Quaternion messageRotation;

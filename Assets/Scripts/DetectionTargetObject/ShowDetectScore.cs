@@ -1,9 +1,5 @@
 using UnityEngine;
 using TMPro;
-using RosSharp.RosBridgeClient;
-using RosSharp.Urdf;
-using System.Collections.Generic;
-using RosSharp.RosBridgeClient.MessageTypes.Std;
 
 public class ShowDetectScore : MonoBehaviour
 {

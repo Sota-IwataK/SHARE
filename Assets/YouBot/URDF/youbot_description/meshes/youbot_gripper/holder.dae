@@ -1,20 +1,3 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<COLLADA version="1.5.0" xmlns="http://www.collada.org/2008/03/COLLADASchema">
-  <asset>
-    <contributor />
-    <unit meter="1" />
-  </asset>
-  <library_lights />
-  <library_materials />
-  <library_effects />
-  <library_cameras />
-  <library_geometries />
-  <library_images />
-  <library_visual_scenes>
-    <visual_scene id="Scene" />
-  </library_visual_scenes>
-  <library_animations />
-  <scene>
-    <instance_visual_scene url="#Scene" />
-  </scene>
-</COLLADA>
+version https://git-lfs.github.com/spec/v1
+oid sha256:2b7c3f993f2753632da9e7f33e7d2a443ab96e4e4d93d612c333ce2f504a5b29
+size 523

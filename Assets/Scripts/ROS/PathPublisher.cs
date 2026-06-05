@@ -1,51 +1,31 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
+using RosMessageTypes.Geometry;
+using RosMessageTypes.Nav;
+using RosMessageTypes.Std;
 using UnityEngine;
-using RosSharp.RosBridgeClient;
-using RosSharp.RosBridgeClient.MessageTypes.Geometry;
-using RosSharp.RosBridgeClient.MessageTypes.Nav;
 
-public class PathPublisher : UnityPublisher<Path>
+public class PathPublisher : RosTcpPublisher<PathMsg>
 {
     public string FrameId = "Unity";
-    private Path message;
-    UnityEngine.Vector3 pose;
-    public PoseStamped[] WayPointPoseList;
+    public PoseStampedMsg[] WayPointPoseList;
     public List<GameObject> WayPointObjectList;
-
     public bool PublishStatus;
-    
+
+    private PathMsg message;
 
     protected override void Start()
     {
         base.Start();
-        InitializeMessage();
-
+        message = new PathMsg();
     }
 
     private void FixedUpdate()
     {
-        if (PublishStatus)
-        {
-            GetWayPointList();
-            UpdateMessage();
-        }
-    }
-    private void InitializeMessage()
-    {
-        message = new Path
-        {
-            header = new RosSharp.RosBridgeClient.MessageTypes.Std.Header()
-            {
-                frame_id = FrameId
-            }
-            
-        };
-    }
-    private void UpdateMessage()
-    {
-        message.header.Update();
+        if (!PublishStatus) return;
+
+        GetWayPointList();
+        message.header = new HeaderMsg { stamp = RosTcpUtility.GetRosTime(), frame_id = FrameId };
         message.poses = WayPointPoseList;
         Debug.Log("Publish : " + message.poses.Length);
         Publish(message);
@@ -54,28 +34,31 @@ public class PathPublisher : UnityPublisher<Path>
 
     private void GetWayPointList()
     {
+        if (WayPointObjectList == null) return;
+
         Array.Resize(ref WayPointPoseList, WayPointObjectList.Count);
 
-        for(int i = 0; i < WayPointObjectList.Count; i++)
+        for (int i = 0; i < WayPointObjectList.Count; i++)
         {
-            RosSharp.RosBridgeClient.MessageTypes.Geometry.Point position = GetPosition(WayPointObjectList[i].transform.localPosition);
-            RosSharp.RosBridgeClient.MessageTypes.Geometry.Quaternion orientation = GetRotation(WayPointObjectList[i].transform.localRotation);
-            PoseStamped poseStamped = new PoseStamped();
-            poseStamped.pose.position = position;
-            poseStamped.pose.orientation = orientation;
+            PoseStampedMsg poseStamped = new PoseStampedMsg
+            {
+                pose =
+                {
+                    position = GetPosition(WayPointObjectList[i].transform.localPosition),
+                    orientation = GetRotation(WayPointObjectList[i].transform.localRotation)
+                }
+            };
             WayPointPoseList[i] = poseStamped;
         }
     }
 
-    private RosSharp.RosBridgeClient.MessageTypes.Geometry.Point GetPosition(UnityEngine.Vector3 pos)
+    private static PointMsg GetPosition(Vector3 pos)
     {
-        // ROSの座標系からUnityの座標系へ変換（通常、ROSは右手系、Unityは左手系）
-        return new RosSharp.RosBridgeClient.MessageTypes.Geometry.Point((float)-pos.x, -(float)pos.z, (float)pos.y);
+        return new PointMsg(-pos.x, -pos.z, pos.y);
     }
 
-    private RosSharp.RosBridgeClient.MessageTypes.Geometry.Quaternion GetRotation(UnityEngine.Quaternion orientation)
+    private static QuaternionMsg GetRotation(Quaternion orientation)
     {
-        // 四元数の変換も同様に行います
-        return new RosSharp.RosBridgeClient.MessageTypes.Geometry.Quaternion((float)orientation.z, -(float)orientation.x, (float)orientation.y, -(float)orientation.w);
+        return new QuaternionMsg(orientation.z, -orientation.x, orientation.y, -orientation.w);
     }
 }

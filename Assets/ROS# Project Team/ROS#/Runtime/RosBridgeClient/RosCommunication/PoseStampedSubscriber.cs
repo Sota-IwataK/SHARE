@@ -13,57 +13,62 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+using RosMessageTypes.Geometry;
 using UnityEngine;
 
-namespace RosSharp.RosBridgeClient
+public class PoseStampedSubscriber : RosTcpSubscriber<PoseStampedMsg>
 {
-    public class PoseStampedSubscriber : UnitySubscriber<MessageTypes.Geometry.PoseStamped>
+    public Transform PublishedTransform;
+
+    private Vector3 position;
+    private Quaternion rotation;
+    private bool isMessageReceived;
+
+    private void Update()
     {
-        public Transform PublishedTransform;
+        if (isMessageReceived)
+            ProcessMessage();
+    }
 
-        private Vector3 position;
-        private Quaternion rotation;
-        private bool isMessageReceived;
+    protected override void ReceiveMessage(PoseStampedMsg message)
+    {
+        position = Ros2Unity(GetPosition(message));
+        rotation = Ros2Unity(GetRotation(message));
+        isMessageReceived = true;
+    }
 
-        protected override void Start()
-        {
-			base.Start();
-		}
-		
-        private void Update()
-        {
-            if (isMessageReceived)
-                ProcessMessage();
-        }
+    private void ProcessMessage()
+    {
+        if (PublishedTransform == null) return;
 
-        protected override void ReceiveMessage(MessageTypes.Geometry.PoseStamped message)
-        {
-            position = GetPosition(message).Ros2Unity();
-            rotation = GetRotation(message).Ros2Unity();
-            isMessageReceived = true;
-        }
+        PublishedTransform.position = position;
+        PublishedTransform.rotation = rotation;
+    }
 
-        private void ProcessMessage()
-        {
-            PublishedTransform.position = position;
-            PublishedTransform.rotation = rotation;
-        }
+    private static Vector3 GetPosition(PoseStampedMsg message)
+    {
+        return new Vector3(
+            (float)message.pose.position.x,
+            (float)message.pose.position.y,
+            (float)message.pose.position.z);
+    }
 
-        private Vector3 GetPosition(MessageTypes.Geometry.PoseStamped message)
-        {
-            return new Vector3(
-                (float)message.pose.position.x,
-                (float)message.pose.position.y,
-                (float)message.pose.position.z);
-        }
+    private static Quaternion GetRotation(PoseStampedMsg message)
+    {
+        return new Quaternion(
+            (float)message.pose.orientation.x,
+            (float)message.pose.orientation.y,
+            (float)message.pose.orientation.z,
+            (float)message.pose.orientation.w);
+    }
 
-        private Quaternion GetRotation(MessageTypes.Geometry.PoseStamped message)
-        {
-            return new Quaternion(
-                (float)message.pose.orientation.x,
-                (float)message.pose.orientation.y,
-                (float)message.pose.orientation.z,
-                (float)message.pose.orientation.w);
-        }
+    private static Vector3 Ros2Unity(Vector3 vector)
+    {
+        return new Vector3(-vector.y, vector.z, vector.x);
+    }
+
+    private static Quaternion Ros2Unity(Quaternion quaternion)
+    {
+        return new Quaternion(quaternion.y, -quaternion.z, -quaternion.x, quaternion.w);
     }
 }

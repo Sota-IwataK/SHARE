@@ -1,26 +1,14 @@
-using System.Collections;
-using System.Collections.Generic;
+using RosMessageTypes.Std;
 using UnityEngine;
 
-
-namespace RosSharp.RosBridgeClient
+public class PickObjectPublisher : RosTcpPublisher<Float32MultiArrayMsg>
 {
-    public class PickObjectPublisher : UnityPublisher<MessageTypes.Std.Float32MultiArray>
-    {
-        float[] data = new float[0];
-        [SerializeField] private SelectObject select;
-        protected override void Start()
-        {
-            base.Start();
-        }
+    [SerializeField] private SelectObject select;
 
-        private void FixedUpdate()
-        {
-            MessageTypes.Std.Float32MultiArray message;
-            message = new MessageTypes.Std.Float32MultiArray();
-            data = select.PickObjectMessage();
-            message.data = data;
-            Publish(message);
-        }
+    private void FixedUpdate()
+    {
+        if (select == null) return;
+
+        Publish(new Float32MultiArrayMsg { data = select.PickObjectMessage() });
     }
 }

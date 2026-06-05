@@ -1,11 +1,10 @@
 using UnityEngine;
-using RosSharp.RosBridgeClient;
 
 public class recover : MonoBehaviour
 {
     [SerializeField] private GameObject rosConnector;
 
-    // GameObject がアクティブになったときに呼ばれる
+    // GameObject 縺後い繧ｯ繝�繧｣繝悶↓縺ｪ縺｣縺溘→縺阪↓蜻ｼ縺ｰ繧後ｋ
     private void OnEnable()
     {
         if (rosConnector == null) return;

@@ -3,9 +3,8 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using MixedReality.Toolkit.UX;
-using MixedReality.Toolkit.Input; // ©•K—v‚É‰‚¶‚Ä’Ç‰Á
+using MixedReality.Toolkit.Input; // â†å¿…è¦ã«å¿œã˜ã¦è¿½åŠ 
 using UnityEngine.XR.Interaction.Toolkit;
-using RosSharp.RosBridgeClient;
 
 public class ShpereInverse : MonoBehaviour
 {

@@ -5,82 +5,82 @@
 
 //public class IRM_BottleSelector : MonoBehaviour
 //{
-//    // ROS Publisher‚Ö‚ÌQÆi•K—v‚É‰‚¶‚ÄInspector‚Åİ’èj
-//    [SerializeField] RosSharp.RosBridgeClient.IRM_SerectObjectPublisher irmSelectPublisher;
+//    // ROS Publisherã¸ã®å‚ç…§ï¼ˆå¿…è¦ã«å¿œã˜ã¦Inspectorã§è¨­å®šï¼‰
+//    [SerializeField] IRM_SerectObjectPublisher irmSelectPublisher;
 
-//    // ‘I‘ğ‚³‚ê‚½ƒ{ƒgƒ‹‚ğŠi”[‚·‚éƒŠƒXƒg
+//    // é¸æŠã•ã‚ŒãŸãƒœãƒˆãƒ«ã‚’æ ¼ç´ã™ã‚‹ãƒªã‚¹ãƒˆ
 //    public List<GameObject> SelectedObjectList = new List<GameObject>();
 
-//    // À•WŒvZ‚ÌŠî€“_iUnityã‚ÌArm Root‚È‚Çj
+//    // åº§æ¨™è¨ˆç®—ã®åŸºæº–ç‚¹ï¼ˆUnityä¸Šã®Arm Rootãªã©ï¼‰
 //    [SerializeField] private GameObject Origin;
 
-//    // ‘I‘ğ‚ÌFİ’è
+//    // é¸æŠæ™‚ã®è‰²è¨­å®š
 //    [ColorUsage(false, true)] public Color SelectColor;
 
 //    void Start()
 //    {
-//        // ƒŠƒXƒg‚Ì‰Šú‰»
+//        // ãƒªã‚¹ãƒˆã®åˆæœŸåŒ–
 //        if (SelectedObjectList == null)
 //        {
 //            SelectedObjectList = new List<GameObject>();
 //        }
 //    }
 
-//    // ƒ{ƒgƒ‹‚ÉG‚ê‚½‚Ìˆ—i‘I‘ğƒƒWƒbƒNj
+//    // ãƒœãƒˆãƒ«ã«è§¦ã‚ŒãŸæ™‚ã®å‡¦ç†ï¼ˆé¸æŠãƒ­ã‚¸ãƒƒã‚¯ï¼‰
 //    void OnTriggerEnter(Collider other)
 //    {
-//        // "bottle"ƒ^ƒO‚ÌƒIƒuƒWƒFƒNƒg‚Ì‚İ‘ÎÛ
+//        // "bottle"ã‚¿ã‚°ã®ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆã®ã¿å¯¾è±¡
 //        if (other.CompareTag("bottle"))
 //        {
-//            // ‚Ü‚¾ƒŠƒXƒg‚ÉŠÜ‚Ü‚ê‚Ä‚¢‚È‚¢ê‡‚Ì‚İ’Ç‰Á
+//            // ã¾ã ãƒªã‚¹ãƒˆã«å«ã¾ã‚Œã¦ã„ãªã„å ´åˆã®ã¿è¿½åŠ 
 //            if (!SelectedObjectList.Contains(other.gameObject))
 //            {
-//                // 1. F‚ğ•ÏX‚µ‚Ä‘I‘ğó‘Ô‚ğ‰Â‹‰»
+//                // 1. è‰²ã‚’å¤‰æ›´ã—ã¦é¸æŠçŠ¶æ…‹ã‚’å¯è¦–åŒ–
 //                var rend = other.GetComponent<MeshRenderer>();
 //                if (rend != null)
 //                {
 //                    rend.material.color = SelectColor;
-//                    SetOpaque(rend.material); // ƒ}ƒeƒŠƒAƒ‹‚ğ•s“§–¾‚Éİ’è
+//                    SetOpaque(rend.material); // ãƒãƒ†ãƒªã‚¢ãƒ«ã‚’ä¸é€æ˜ã«è¨­å®š
 //                }
 
-//                // 2. ƒŠƒXƒg‚É’Ç‰Á
+//                // 2. ãƒªã‚¹ãƒˆã«è¿½åŠ 
 //                SelectedObjectList.Add(other.gameObject);
 //            }
 //        }
 //    }
 
-//    // PublisherƒXƒNƒŠƒvƒg‚©‚çŒÄ‚Ño‚³‚ê‚éŠÖ”
-//    // ‘I‘ğ‚³‚ê‚½ƒ{ƒgƒ‹‚ÌÀ•WƒŠƒXƒgiROSÀ•WŒnj‚ğ•Ô‚·
+//    // Publisherã‚¹ã‚¯ãƒªãƒ—ãƒˆã‹ã‚‰å‘¼ã³å‡ºã•ã‚Œã‚‹é–¢æ•°
+//    // é¸æŠã•ã‚ŒãŸãƒœãƒˆãƒ«ã®åº§æ¨™ãƒªã‚¹ãƒˆï¼ˆROSåº§æ¨™ç³»ï¼‰ã‚’è¿”ã™
 //    public float[] IRM_SelectMessage()
 //    {
 //        var selectCoords = new List<float>();
 
 //        if (Origin == null)
 //        {
-//            Debug.LogError("Origin ‚ªİ’è‚³‚ê‚Ä‚¢‚Ü‚¹‚ñIInspector‚Åİ’è‚µ‚Ä‚­‚¾‚³‚¢B");
+//            Debug.LogError("Origin ãŒè¨­å®šã•ã‚Œã¦ã„ã¾ã›ã‚“ï¼Inspectorã§è¨­å®šã—ã¦ãã ã•ã„ã€‚");
 //            return selectCoords.ToArray();
 //        }
 
-//        // ƒIƒtƒZƒbƒgiŒ³ƒR[ƒh‚Å‚Í0,0,0j
+//        // ã‚ªãƒ•ã‚»ãƒƒãƒˆï¼ˆå…ƒã‚³ãƒ¼ãƒ‰ã§ã¯0,0,0ï¼‰
 //        Vector3 axisOffset = Vector3.zero;
 
-//        // Šî€“_‚Ìƒ[ƒ‹ƒhÀ•W
+//        // åŸºæº–ç‚¹ã®ãƒ¯ãƒ¼ãƒ«ãƒ‰åº§æ¨™
 //        Vector3 originWorld = Origin.transform.position;
 
 //        foreach (GameObject obj in SelectedObjectList)
 //        {
 //            if (obj == null) continue;
 
-//            // 1) ƒ{ƒgƒ‹‚Ìƒ[ƒ‹ƒhÀ•W
+//            // 1) ãƒœãƒˆãƒ«ã®ãƒ¯ãƒ¼ãƒ«ãƒ‰åº§æ¨™
 //            Vector3 bottleWorld = obj.transform.position;
 
-//            // 2) Šî€“_‚©‚ç‚Ì‘Š‘ÎˆÊ’u‚ğŒvZ
+//            // 2) åŸºæº–ç‚¹ã‹ã‚‰ã®ç›¸å¯¾ä½ç½®ã‚’è¨ˆç®—
 //            Vector3 relative = bottleWorld - originWorld;
 
-//            // 3) ƒIƒtƒZƒbƒg‚ğ‰ÁZ
+//            // 3) ã‚ªãƒ•ã‚»ãƒƒãƒˆã‚’åŠ ç®—
 //            Vector3 adjusted = relative + axisOffset;
 
-//            // 4) YouBot (ROS) Œü‚¯‚É²”½“]E“ü‚ê‘Ö‚¦
+//            // 4) YouBot (ROS) å‘ã‘ã«è»¸åè»¢ãƒ»å…¥ã‚Œæ›¿ãˆ
 //            // Unity X -> ROS -X
 //            // Unity Z -> ROS -Y
 //            // Unity Y -> ROS Z
@@ -88,7 +88,7 @@
 //            float youbot_y = -adjusted.z;
 //            float youbot_z = adjusted.y;
 
-//            // 5) ”z—ñ‚É’Ç‰Á
+//            // 5) é…åˆ—ã«è¿½åŠ 
 //            selectCoords.Add(youbot_x);
 //            selectCoords.Add(youbot_y);
 //            selectCoords.Add(youbot_z);
@@ -97,7 +97,7 @@
 //        return selectCoords.ToArray();
 //    }
 
-//    // ƒ}ƒeƒŠƒAƒ‹‚ğOpaquei•s“§–¾jƒ‚[ƒh‚É‹­§‚·‚éƒwƒ‹ƒp[ŠÖ”
+//    // ãƒãƒ†ãƒªã‚¢ãƒ«ã‚’Opaqueï¼ˆä¸é€æ˜ï¼‰ãƒ¢ãƒ¼ãƒ‰ã«å¼·åˆ¶ã™ã‚‹ãƒ˜ãƒ«ãƒ‘ãƒ¼é–¢æ•°
 //    private void SetOpaque(Material m)
 //    {
 //        m.SetFloat("_Surface", 0f);

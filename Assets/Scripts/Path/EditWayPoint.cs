@@ -1,33 +1,29 @@
-using System.Collections;
-using System.Collections.Generic;
+using RosMessageTypes.Geometry;
+using RosMessageTypes.Nav;
 using UnityEngine;
-using RosSharp.RosBridgeClient;
-using RosSharp.RosBridgeClient.MessageTypes.Geometry;
-using RosSharp.RosBridgeClient.MessageTypes.Nav;
-
 
 public class EditWayPoint : MonoBehaviour
 {
     public int wayPointNumber;
 
-    private RosConnector _rosConnector;
-    private PathPublisher _pathPublisher;
-    [SerializeField] private PathSubscriber _pathSubscriber;
-    public Path messageData;
+    private PathPublisher pathPublisher;
+    [SerializeField] private PathSubscriber pathSubscriber;
+    public PathMsg messageData;
 
     private void Start()
     {
-        _rosConnector = GameObject.Find("RosConnector").GetComponent<RosConnector>();
-        _pathPublisher = _rosConnector.GetComponent<PathPublisher>();
-        _pathSubscriber = _rosConnector.GetComponent<PathSubscriber>();
+        pathPublisher = FindObjectOfType<PathPublisher>();
+        if (pathSubscriber == null) pathSubscriber = FindObjectOfType<PathSubscriber>();
     }
+
     public void edit()
     {
-        messageData = _pathSubscriber.messageData;
+        if (pathPublisher == null || pathSubscriber == null || pathSubscriber.messageData == null) return;
 
-        messageData.poses[wayPointNumber].pose.position = new Point (this.transform.position.x,this.transform.position.y,this.transform.position.z);
-        _pathPublisher.WayPointPoseList = messageData.poses;
-
-        _pathPublisher.PublishStatus = true;
+        messageData = pathSubscriber.messageData;
+        messageData.poses[wayPointNumber].pose.position =
+            new PointMsg(transform.position.x, transform.position.y, transform.position.z);
+        pathPublisher.WayPointPoseList = messageData.poses;
+        pathPublisher.PublishStatus = true;
     }
 }

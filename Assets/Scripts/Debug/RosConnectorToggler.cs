@@ -1,5 +1,4 @@
 using UnityEngine;
-using RosSharp.RosBridgeClient;
 using System.Diagnostics;
 
 public class YoubotOffsetToggler : MonoBehaviour

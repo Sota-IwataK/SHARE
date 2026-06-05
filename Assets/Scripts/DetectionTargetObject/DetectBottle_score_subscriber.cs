@@ -1,28 +1,11 @@
-using System.Collections;
-using System.Collections.Generic;
-using UnityEngine;
-using RosSharp.RosBridgeClient;
-using RosSharp.RosBridgeClient.MessageTypes.Std;
+using RosMessageTypes.Std;
 
-namespace RosSharp.RosBridgeClient
+public class DetectBottle_score_subscriber : RosTcpSubscriber<Float32Msg>
 {
-    // Int32 メッセージを受け取って bottle_id フィールドに格納するサブスクライバ
-    public class DetectBottle_score_subscriber : UnitySubscriber<Float32>
+    public float bottle_score;
+
+    protected override void ReceiveMessage(Float32Msg message)
     {
-        // 受信したボトルIDを格納する変数
-        public float bottle_score ;
-    
-
-        protected override void Start()
-        {
-            base.Start();
-        }
-
-        // メッセージ受信時に呼ばれるコールバック
-        protected override void ReceiveMessage(Float32 message)
-        {
-            bottle_score = message.data;
-            
-        }
+        bottle_score = message.data;
     }
 }

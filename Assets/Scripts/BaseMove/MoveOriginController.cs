@@ -4,7 +4,7 @@ using UnityEngine;
 
 public class MoveOriginController : MonoBehaviour
 {
-    [SerializeField] private RosSharp.RosBridgeClient.YouBotPosSubscriber youBotPosSubscriber;
+    [SerializeField] private YouBotPosSubscriber youBotPosSubscriber;
     // Start is called before the first frame update
     
     private Vector3 messagePosition;

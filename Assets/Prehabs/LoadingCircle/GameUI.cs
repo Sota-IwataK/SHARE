@@ -1,7 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
-using RosSharp.RosBridgeClient;
 
 public class GameUI : MonoBehaviour
 {
@@ -18,7 +17,7 @@ public class GameUI : MonoBehaviour
 
   
 
-    // ƒAƒNƒeƒBƒu‚É‚È‚é‚½‚Ñ‚Éƒ^ƒCƒ}[‰Šú‰»
+    // ã‚¢ã‚¯ãƒ†ã‚£ãƒ–ã«ãªã‚‹ãŸã³ã«ã‚¿ã‚¤ãƒãƒ¼åˆæœŸåŒ–
     private void OnEnable()
     {
         currentCount = startCount;

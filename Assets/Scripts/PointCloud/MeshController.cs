@@ -2,7 +2,6 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using System.IO;
-using RosSharp.RosBridgeClient;
 
 public class MeshController : MonoBehaviour
 {
@@ -26,15 +25,15 @@ public class MeshController : MonoBehaviour
     public Transform offset; // Put any gameobject that faciliatates adjusting the origin of the pointcloud in VR. 
 
     public Material pointCloudMaterial;
-    public Texture2D pointTexture; // ƒ|ƒCƒ“ƒg‚ÌŒ©‚½–Ú‚ğw’è‚·‚éƒeƒNƒXƒ`ƒƒ
+    public Texture2D pointTexture; // ãƒã‚¤ãƒ³ãƒˆã®è¦‹ãŸç›®ã‚’æŒ‡å®šã™ã‚‹ãƒ†ã‚¯ã‚¹ãƒãƒ£
     private bool Meshstatus = false;
     void Start()
     {
         pointCloudMaterial = new Material(Shader.Find("Custom/PointCloudShader"));
         pointCloudMaterial.SetTexture("_MainTex", pointTexture);
 
-        // ƒ|ƒCƒ“ƒg‚ÌƒTƒCƒY‚ğ’²®‚·‚é‚½‚ß‚Ì•Ï”
-        float pointSize = 1000f; // “KØ‚È’l‚É’²®‚µ‚Ä‚­‚¾‚³‚¢
+        // ãƒã‚¤ãƒ³ãƒˆã®ã‚µã‚¤ã‚ºã‚’èª¿æ•´ã™ã‚‹ãŸã‚ã®å¤‰æ•°
+        float pointSize = 1000f; // é©åˆ‡ãªå€¤ã«èª¿æ•´ã—ã¦ãã ã•ã„
         pointCloudMaterial.SetFloat("_PointSize", pointSize);
 
         // Give all the required components to the gameObject
@@ -128,17 +127,17 @@ public class MeshController : MonoBehaviour
     {
         List<Vector3> vertices = new List<Vector3>();
         List<int> indices = new List<int>();
-        // “_ŒQ–§“x‚Ìè‡’li“K‹X’²®‚µ‚Ä‚­‚¾‚³‚¢j
+        // ç‚¹ç¾¤å¯†åº¦ã®é–¾å€¤ï¼ˆé©å®œèª¿æ•´ã—ã¦ãã ã•ã„ï¼‰
         float densityThreshold = 0.01f;
 
-        // ’¸“_‚ÌƒCƒ“ƒfƒbƒNƒX‚ğŠÇ—‚·‚é«‘
+        // é ‚ç‚¹ã®ã‚¤ãƒ³ãƒ‡ãƒƒã‚¯ã‚¹ã‚’ç®¡ç†ã™ã‚‹è¾æ›¸
         Dictionary<Vector3, int> vertexDictionary = new Dictionary<Vector3, int>();
 
         for (int i = 0; i < positions.Length; i++)
         {
             Vector3 point = positions[i];
 
-            // ’¸“_‚ÌƒCƒ“ƒfƒbƒNƒX‚ğæ“¾‚Ü‚½‚Í’Ç‰Á
+            // é ‚ç‚¹ã®ã‚¤ãƒ³ãƒ‡ãƒƒã‚¯ã‚¹ã‚’å–å¾—ã¾ãŸã¯è¿½åŠ 
             int vertexIndex;
             if (vertexDictionary.ContainsKey(point))
             {
@@ -151,16 +150,16 @@ public class MeshController : MonoBehaviour
                 vertexDictionary.Add(point, vertexIndex);
             }
 
-            // ’¸“_À•W‚ª (0, 0, 0) ‚Ìê‡‚Íƒ|ƒŠƒSƒ“‚ğ¶¬‚µ‚È‚¢
+            // é ‚ç‚¹åº§æ¨™ãŒ (0, 0, 0) ã®å ´åˆã¯ãƒãƒªã‚´ãƒ³ã‚’ç”Ÿæˆã—ãªã„
             if (point == Vector3.zero)
             {
                 continue;
             }
-            // –§“x‰ğÍ—p‚ÌƒJƒEƒ“ƒ^‚Æ‹——£ŒvZ—p‚Ì•Ï”‚ğ‰Šú‰»
+            // å¯†åº¦è§£æç”¨ã®ã‚«ã‚¦ãƒ³ã‚¿ã¨è·é›¢è¨ˆç®—ç”¨ã®å¤‰æ•°ã‚’åˆæœŸåŒ–
             int neighborCount = 0;
             float totalDistance = 0f;
 
-            // “_ŒQŠÔ‚Ì‹——£‚ğŒvZ‚µ‚Ä–§“x‚ğ‰ğÍ
+            // ç‚¹ç¾¤é–“ã®è·é›¢ã‚’è¨ˆç®—ã—ã¦å¯†åº¦ã‚’è§£æ
             for (int j = 0; j < positions.Length; j++)
             {
                 if (i == j)
@@ -171,33 +170,33 @@ public class MeshController : MonoBehaviour
 
                 if (distance < densityThreshold)
                 {
-                    // –§“x‚ªè‡’lˆÈ‰º‚Ì“_‚ğƒJƒEƒ“ƒg
+                    // å¯†åº¦ãŒé–¾å€¤ä»¥ä¸‹ã®ç‚¹ã‚’ã‚«ã‚¦ãƒ³ãƒˆ
                     neighborCount++;
                     totalDistance += distance;
                 }
             }
 
-            // –§“x‚ªè‡’lˆÈã‚Ìê‡‚Éƒgƒ‰ƒCƒAƒ“ƒOƒ‹‚ğ¶¬
+            // å¯†åº¦ãŒé–¾å€¤ä»¥ä¸Šã®å ´åˆã«ãƒˆãƒ©ã‚¤ã‚¢ãƒ³ã‚°ãƒ«ã‚’ç”Ÿæˆ
             if (neighborCount >= 3)
             {
-                // OŠpŒ`ƒCƒ“ƒfƒbƒNƒX‚ğ’Ç‰Á
+                // ä¸‰è§’å½¢ã‚¤ãƒ³ãƒ‡ãƒƒã‚¯ã‚¹ã‚’è¿½åŠ 
                 indices.Add(vertexIndex);
             }
         }
 
-        // Mesh‚Ìì¬
+        // Meshã®ä½œæˆ
         mesh = new Mesh();
         mesh.SetVertices(vertices);
         mesh.RecalculateNormals();
         mesh.SetIndices(indices.ToArray(), MeshTopology.Triangles, 0);
 
-        // Mesh‚ÌXV
+        // Meshã®æ›´æ–°
         mf.mesh = mesh;
 
     }
 
 
-    // triangle‚Ìindice‚ğæ“¾‚·‚éŠÖ”
+    // triangleã®indiceã‚’å–å¾—ã™ã‚‹é–¢æ•°
     private List<int> GetTriangleIndiceList()
     {
         int width = (int)size.x;

@@ -1,41 +1,20 @@
+using RosMessageTypes.Std;
 using UnityEngine;
-using RosSharp.RosBridgeClient;
-using std_msgs = RosSharp.RosBridgeClient.MessageTypes.Std;
 
-namespace RosSharp.RosBridgeClient
+public class ZRotationPublisher : RosTcpPublisher<Float64Msg>
 {
-    /// <summary>
-    /// 任意オブジェクトの Z 軸回転角（ラジアン）を Float64 メッセージで配信します。
-    /// </summary>
-    public class ZRotationPublisher : UnityPublisher<std_msgs.Float64>
+    [Header("Rotation Source")]
+    public Transform targetObject;
+
+    private readonly Float64Msg message = new Float64Msg();
+
+    private void FixedUpdate()
     {
-        [Header("Rotation Source")]
-        [Tooltip("回転角を取得するオブジェクト")]
-        public Transform targetObject;
+        if (targetObject == null) return;
 
-     
-
-        private std_msgs.Float64 message;
-
-        protected override void Start()
-        {
-            // ① base.Start() が RosConnector からトピックを Advertise してくれる
-            base.Start();
-
-            // ② メッセージインスタンスを生成
-            message = new std_msgs.Float64();
-        }
-
-        private void FixedUpdate()
-        {
-            // ③ Z 軸回転角を取得・正規化・ラジアン変換
-            float zDeg = targetObject.rotation.eulerAngles.z;
-            if (zDeg > 180f) zDeg -= 360f;
-            double zRad = zDeg * Mathf.Deg2Rad;
-
-            // ④ メッセージにセットして Publish
-            message.data = zRad;
-            Publish(message);
-        }
+        float zDeg = targetObject.rotation.eulerAngles.z;
+        if (zDeg > 180f) zDeg -= 360f;
+        message.data = zDeg * Mathf.Deg2Rad;
+        Publish(message);
     }
 }
