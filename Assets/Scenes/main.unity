@@ -469,8 +469,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: c32e8a7644144f8419bb881ad588ed0e, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   m_InteractionManager: {fileID: 0}
   m_Colliders: []
   m_InteractionLayerMask:
@@ -39672,6 +39672,65 @@ Transform:
   m_Children:
   - {fileID: 259715464}
   m_Father: {fileID: 633987595}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1521942133
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1521942135}
+  - component: {fileID: 1521942134}
+  m_Layer: 0
+  m_Name: PinchDistanceGripperController
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1521942134
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1521942133}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2276aba718f646c79ec2ca4040ae3ae0, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  useRightHand: 0
+  thumbReferenceTransform: {fileID: 0}
+  indexReferenceTransform: {fileID: 0}
+  externalPinchSource: {fileID: 556539726}
+  resolveReferenceTransformsFromExternalSource: 1
+  useExternalPinchState: 0
+  externalPinchBoolMemberName: airtap
+  topicName: /amir/gripper_cmd
+  queueSize: 10
+  enableControl: 1
+  openThreshold: 0.055
+  closeThreshold: 0.03
+  publishCooldownSec: 0.3
+  logDistance: 1
+  distanceLogIntervalSec: 0.5
+--- !u!4 &1521942135
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1521942133}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1523010946
 GameObject:
@@ -93231,3 +93290,4 @@ SceneRoots:
   - {fileID: 1848318713}
   - {fileID: 1741544532}
   - {fileID: 581394850}
+  - {fileID: 1521942135}
