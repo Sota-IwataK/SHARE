@@ -1,8 +1,10 @@
 using System.Collections.Generic;
 using System.Reflection;
+using System.Text;
 using MixedReality.Toolkit;
 using RosMessageTypes.Geometry;
 using Unity.Robotics.ROSTCPConnector;
+using Unity.Robotics.ROSTCPConnector.MessageGeneration;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -42,6 +44,14 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
     public float selectionScoreThreshold = 0.45f;
     public bool addToButtonCollectionMenu = false;
     public bool createRuntimeButton = false;
+    public bool showDebugStatusText = true;
+    public bool forceSpawnInFrontOfHmd = false;
+    public float forceSpawnDistance = 0.5f;
+    public float debugStatusDistance = 0.55f;
+    public float debugStatusVerticalOffset = -0.08f;
+    public float debugStatusFontSize = 0.1f;
+    public float debugStatusWidth = 1.8f;
+    public float debugStatusHeight = 1.0f;
     public string PoseArrayTopic = DefaultPoseArrayTopic;
     public Transform buttonCollectionRoot;
     public Canvas spawnButtonCanvas;
@@ -63,6 +73,19 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
     private GameObject candidateBottle;
     private GameObject candidateLabel;
     private float nextCandidateDebugLogTime;
+    private TextMeshPro debugStatusText;
+    private GameObject debugStatusObject;
+    private float nextDebugStatusUpdateTime;
+    private int poseArrayReceiveCount;
+    private int latestDetectedCount;
+    private int spawnBottleCallCount;
+    private int spawnBottleManualCallCount;
+    private int spawnBottleFromDetectionCallCount;
+    private int hmdFrontSpawnCallCount;
+    private int createdBottleCreatedCount;
+    private int detectedBottleCreatedCount;
+    private string latestPoseArrayFrameId = "none";
+    private string latestCreatedBottleState = "none";
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void EnsureRuntimeSubscriberExists()
@@ -119,12 +142,18 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
         palmWeight = Mathf.Max(0f, palmWeight);
         gazeWeight = Mathf.Max(0f, gazeWeight);
         selectionScoreThreshold = Mathf.Clamp01(selectionScoreThreshold);
+        forceSpawnDistance = Mathf.Max(0.001f, forceSpawnDistance);
+        debugStatusDistance = Mathf.Max(0.001f, debugStatusDistance);
+        debugStatusFontSize = Mathf.Max(0.001f, debugStatusFontSize);
+        debugStatusWidth = Mathf.Max(0.1f, debugStatusWidth);
+        debugStatusHeight = Mathf.Max(0.1f, debugStatusHeight);
     }
 
     protected override void Start()
     {
         base.Start();
         EnsurePoseArraySubscriber();
+        EnsureDebugStatusText();
         EnsureButtonCollectionSpawnButton();
         EnsureManualSpawnButton();
     }
@@ -133,11 +162,13 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
     {
         base.OnEnable();
         EnsurePoseArraySubscriber();
+        EnsureDebugStatusText();
     }
 
     private void Update()
     {
         UpdateRuntimeSpawnCanvasPose();
+        UpdateDebugStatusText();
 
         for (int i = 0; i < bottleHasTargetPositions.Count; i++)
         {
@@ -313,7 +344,10 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
 
     public void SpawnBottleManual(int index)
     {
+        spawnBottleCallCount++;
+        spawnBottleManualCallCount++;
         Debug.Log("[DetectedBottlePoseSubscriber] Spawn Bottle button pressed");
+        ForceDebugStatusRefresh();
 
         int latestDetectionCount = latestDetectedUnityPositions.Count;
         if (latestDetectionCount > 0)
@@ -340,7 +374,10 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
 
     public void SpawnBottleFromDetection(int index)
     {
+        spawnBottleCallCount++;
+        spawnBottleFromDetectionCallCount++;
         Debug.Log("[DetectedBottlePoseSubscriber] SpawnBottleFromDetection index=" + index);
+        ForceDebugStatusRefresh();
 
         if (!HasLatestDetection(index))
         {
@@ -355,8 +392,30 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
             return;
         }
 
+        Debug.Log("[DetectedBottlePoseSubscriber] Spawn context bottlePrefab=" + GetObjectName(bottlePrefab)
+            + " createdBottleInstances slots=" + createdBottleInstances.Count
+            + " nonNull=" + CountNonNullCreatedBottles()
+            + " active=" + CountActiveCreatedBottles());
+
         Vector3 spawnPosition = latestDetectedUnityPositions[index];
-        GameObject instance = EnsureCreatedBottleInstance(index);
+        if (forceSpawnInFrontOfHmd)
+        {
+            if (TryGetHmdFrontPosition(forceSpawnDistance, 0f, out Vector3 forcedSpawnPosition))
+            {
+                spawnPosition = forcedSpawnPosition;
+                Debug.Log("[DetectedBottlePoseSubscriber] forceSpawnInFrontOfHmd active. "
+                    + "Spawn position overridden to HMD front="
+                    + spawnPosition.ToString("F3")
+                    + " distance=" + forceSpawnDistance.ToString("F3"));
+            }
+            else
+            {
+                Debug.LogWarning("[DetectedBottlePoseSubscriber] forceSpawnInFrontOfHmd active, "
+                    + "but HMD transform was not found. Using detected position.");
+            }
+        }
+
+        GameObject instance = EnsureCreatedBottleInstance(index, spawnPosition);
         if (instance == null)
         {
             return;
@@ -372,26 +431,26 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
             + spawnPosition.ToString("F3"));
         Debug.Log("[DetectedBottlePoseSubscriber] Created bottle scale="
             + createdBottleScale.ToString("F3"));
+        LogBottleVisibilityState("Created Bottle[" + index + "] after spawn", instance);
     }
 
     private void SpawnBottleAtHmdFront()
     {
+        spawnBottleCallCount++;
+        hmdFrontSpawnCallCount++;
         if (bottlePrefab == null)
         {
             Debug.LogError("[DetectedBottlePoseSubscriber] bottlePrefab is not assigned; manual spawn failed.");
             return;
         }
 
-        Transform cameraTransform = Camera.main != null ? Camera.main.transform : null;
-        if (cameraTransform == null)
+        float distance = forceSpawnInFrontOfHmd ? forceSpawnDistance : 0.6f;
+        float verticalOffset = forceSpawnInFrontOfHmd ? 0f : -0.1f;
+        if (!TryGetHmdFrontPosition(distance, verticalOffset, out Vector3 spawnPosition))
         {
             Debug.LogError("[DetectedBottlePoseSubscriber] Camera.main was not found; manual spawn failed.");
             return;
         }
-
-        Vector3 spawnPosition = cameraTransform.position
-            + cameraTransform.forward.normalized * 0.6f
-            + Vector3.down * 0.1f;
 
         bool reusingExistingBottle = manualBottleInstance != null;
         GameObject instance = EnsureManualBottleInstance();
@@ -413,6 +472,7 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
             + spawnPosition.ToString("F3"));
         Debug.Log("[DetectedBottlePoseSubscriber] Created bottle scale="
             + createdBottleScale.ToString("F3"));
+        LogBottleVisibilityState("Manual Bottle after spawn", instance);
     }
 
     private bool HasLatestDetection(int index)
@@ -420,7 +480,7 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
         return index >= 0 && index < latestDetectedUnityPositions.Count;
     }
 
-    private GameObject EnsureCreatedBottleInstance(int index)
+    private GameObject EnsureCreatedBottleInstance(int index, Vector3 initialPosition)
     {
         if (index < 0)
         {
@@ -446,13 +506,15 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
 
         instance = Instantiate(
             bottlePrefab,
-            latestDetectedUnityPositions[index],
+            initialPosition,
             bottlePrefab.transform.rotation,
             parent);
         instance.name = GetCreatedBottleName(index);
         instance.transform.localScale = Vector3.one * createdBottleScale;
         instance.SetActive(true);
         createdBottleInstances[index] = instance;
+        createdBottleCreatedCount++;
+        LogBottleVisibilityState("Created Bottle[" + index + "] created", instance);
         return instance;
     }
 
@@ -482,7 +544,299 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
         manualBottleInstance.name = ManualBottleName;
         manualBottleInstance.transform.localScale = Vector3.one * createdBottleScale;
         manualBottleInstance.SetActive(true);
+        LogBottleVisibilityState("Manual Bottle created", manualBottleInstance);
         return manualBottleInstance;
+    }
+
+    private bool TryGetHmdFrontPosition(float distance, float verticalOffset, out Vector3 position)
+    {
+        Transform resolvedHmdTransform = ResolveHmdTransform();
+        if (resolvedHmdTransform == null)
+        {
+            position = Vector3.zero;
+            return false;
+        }
+
+        Vector3 forward = resolvedHmdTransform.forward.sqrMagnitude > 0.0001f
+            ? resolvedHmdTransform.forward.normalized
+            : Vector3.forward;
+        position = resolvedHmdTransform.position
+            + forward * distance
+            + Vector3.up * verticalOffset;
+        return true;
+    }
+
+    private void EnsureDebugStatusText()
+    {
+        if (!Application.isPlaying || !showDebugStatusText)
+        {
+            return;
+        }
+
+        if (debugStatusText != null)
+        {
+            debugStatusObject.SetActive(true);
+            return;
+        }
+
+        debugStatusObject = new GameObject("DetectedBottlePoseDebugStatus", typeof(RectTransform));
+        debugStatusText = debugStatusObject.AddComponent<TextMeshPro>();
+        debugStatusText.alignment = TextAlignmentOptions.TopLeft;
+        debugStatusText.color = Color.cyan;
+        debugStatusText.enableWordWrapping = false;
+        debugStatusText.richText = false;
+        ApplyDebugStatusTextStyle();
+        ForceDebugStatusRefresh();
+    }
+
+    private void UpdateDebugStatusText()
+    {
+        if (!showDebugStatusText)
+        {
+            if (debugStatusObject != null)
+            {
+                debugStatusObject.SetActive(false);
+            }
+
+            return;
+        }
+
+        EnsureDebugStatusText();
+        if (debugStatusText == null)
+        {
+            return;
+        }
+
+        ApplyDebugStatusTextStyle();
+        Transform resolvedHmdTransform = ResolveHmdTransform();
+        if (resolvedHmdTransform != null)
+        {
+            Transform debugTransform = debugStatusText.transform;
+            debugTransform.position = resolvedHmdTransform.position
+                + resolvedHmdTransform.forward.normalized * debugStatusDistance
+                + Vector3.up * debugStatusVerticalOffset;
+
+            Vector3 directionToHmd = debugTransform.position - resolvedHmdTransform.position;
+            if (directionToHmd.sqrMagnitude < 0.0001f)
+            {
+                directionToHmd = resolvedHmdTransform.forward;
+            }
+
+            debugTransform.rotation = Quaternion.LookRotation(directionToHmd, Vector3.up);
+        }
+
+        if (Time.time < nextDebugStatusUpdateTime)
+        {
+            return;
+        }
+
+        nextDebugStatusUpdateTime = Time.time + 0.2f;
+        debugStatusText.text = BuildDebugStatusText();
+    }
+
+    private void ApplyDebugStatusTextStyle()
+    {
+        if (debugStatusText == null)
+        {
+            return;
+        }
+
+        debugStatusText.fontSize = debugStatusFontSize;
+        RectTransform rectTransform = debugStatusObject.GetComponent<RectTransform>();
+        rectTransform.sizeDelta = new Vector2(debugStatusWidth, debugStatusHeight);
+    }
+
+    private void ForceDebugStatusRefresh()
+    {
+        nextDebugStatusUpdateTime = 0f;
+    }
+
+    private string BuildDebugStatusText()
+    {
+        StringBuilder builder = new StringBuilder(512);
+        builder.AppendLine("[DetectedBottlePose]");
+        builder.AppendLine("ROS: " + GetRosConnectionStatus());
+        builder.AppendLine("Topic: " + PoseArrayTopic);
+        builder.AppendLine("Subscribed: " + (string.IsNullOrWhiteSpace(subscribedPoseArrayTopic)
+            ? "none"
+            : subscribedPoseArrayTopic));
+        builder.AppendLine("PoseArrayMsg: " + MessageRegistry.GetRosMessageName<PoseArrayMsg>());
+        builder.AppendLine("PoseStampedMsg: " + MessageRegistry.GetRosMessageName<PoseStampedMsg>());
+        builder.AppendLine("/detected_bottle_poses received: " + poseArrayReceiveCount);
+        builder.AppendLine("latestDetectedCount: " + latestDetectedCount);
+        builder.AppendLine("latestDetectedUnityPositions: "
+            + FormatPositions(latestDetectedUnityPositions, 5));
+        builder.AppendLine("bottlePrefab: " + GetObjectName(bottlePrefab));
+        builder.AppendLine("Spawn Bottle calls: " + spawnBottleCallCount
+            + " manual=" + spawnBottleManualCallCount
+            + " detection=" + spawnBottleFromDetectionCallCount
+            + " hmd=" + hmdFrontSpawnCallCount);
+        builder.AppendLine("Created Bottle created: " + createdBottleCreatedCount
+            + " slots=" + createdBottleInstances.Count
+            + " nonNull=" + CountNonNullCreatedBottles()
+            + " active=" + CountActiveCreatedBottles());
+        builder.AppendLine("Detected Bottle created: " + detectedBottleCreatedCount);
+        builder.AppendLine("forceSpawnInFrontOfHmd: " + forceSpawnInFrontOfHmd);
+        builder.AppendLine("lastFrameId: " + latestPoseArrayFrameId);
+        builder.AppendLine("lastObject: " + latestCreatedBottleState);
+        return builder.ToString();
+    }
+
+    private string GetRosConnectionStatus()
+    {
+        ROSConnection ros = poseArrayRos;
+        if (ros == null && Application.isPlaying)
+        {
+            ros = ROSConnection.GetOrCreateInstance();
+        }
+
+        if (ros == null)
+        {
+            return "object=false thread=false error=unknown";
+        }
+
+        return "object=true thread=" + ros.HasConnectionThread
+            + " error=" + ros.HasConnectionError;
+    }
+
+    private int CountActiveCreatedBottles()
+    {
+        int count = 0;
+        for (int i = 0; i < createdBottleInstances.Count; i++)
+        {
+            GameObject instance = createdBottleInstances[i];
+            if (instance != null && instance.activeSelf)
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private int CountNonNullCreatedBottles()
+    {
+        int count = 0;
+        for (int i = 0; i < createdBottleInstances.Count; i++)
+        {
+            if (createdBottleInstances[i] != null)
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private static string GetObjectName(Object unityObject)
+    {
+        return unityObject != null ? unityObject.name : "null";
+    }
+
+    private static string FormatPositions(IList<Vector3> positions, int maxCount)
+    {
+        if (positions == null || positions.Count == 0)
+        {
+            return "[]";
+        }
+
+        StringBuilder builder = new StringBuilder(128);
+        builder.Append("[");
+        int count = Mathf.Min(positions.Count, maxCount);
+        for (int i = 0; i < count; i++)
+        {
+            if (i > 0)
+            {
+                builder.Append(", ");
+            }
+
+            builder.Append(i);
+            builder.Append(":");
+            builder.Append(positions[i].ToString("F3"));
+        }
+
+        if (positions.Count > count)
+        {
+            builder.Append(", ...");
+        }
+
+        builder.Append("]");
+        return builder.ToString();
+    }
+
+    private void LogBottleVisibilityState(string context, GameObject instance)
+    {
+        string state = BuildBottleVisibilityState(instance);
+        latestCreatedBottleState = context + " " + state;
+        Debug.Log("[DetectedBottlePoseSubscriber] " + context + " " + state);
+        ForceDebugStatusRefresh();
+    }
+
+    private static string BuildBottleVisibilityState(GameObject instance)
+    {
+        if (instance == null)
+        {
+            return "instance=null";
+        }
+
+        Renderer[] renderers = instance.GetComponentsInChildren<Renderer>(true);
+        int enabledRendererCount = 0;
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            if (renderers[i] != null && renderers[i].enabled)
+            {
+                enabledRendererCount++;
+            }
+        }
+
+        string layerName = LayerMask.LayerToName(instance.layer);
+        if (string.IsNullOrWhiteSpace(layerName))
+        {
+            layerName = instance.layer.ToString();
+        }
+
+        return "activeSelf=" + instance.activeSelf
+            + " activeInHierarchy=" + instance.activeInHierarchy
+            + " position=" + instance.transform.position.ToString("F3")
+            + " scale=" + instance.transform.localScale.ToString("F3")
+            + " renderer.enabled=" + enabledRendererCount + "/" + renderers.Length
+            + " layer=" + layerName
+            + " material=" + GetMaterialSummary(renderers, 3);
+    }
+
+    private static string GetMaterialSummary(Renderer[] renderers, int maxCount)
+    {
+        if (renderers == null || renderers.Length == 0)
+        {
+            return "none";
+        }
+
+        StringBuilder builder = new StringBuilder(96);
+        int appended = 0;
+        for (int i = 0; i < renderers.Length && appended < maxCount; i++)
+        {
+            Renderer renderer = renderers[i];
+            if (renderer == null)
+            {
+                continue;
+            }
+
+            Material material = renderer.sharedMaterial;
+            if (appended > 0)
+            {
+                builder.Append("|");
+            }
+
+            builder.Append(material != null ? material.name : "null");
+            appended++;
+        }
+
+        if (renderers.Length > appended)
+        {
+            builder.Append("|...");
+        }
+
+        return builder.Length > 0 ? builder.ToString() : "none";
     }
 
     private void ApplyManualBottleInteractionSetup(GameObject instance)
@@ -681,8 +1035,10 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
             return;
         }
 
+        poseArrayReceiveCount++;
         int receivedCount = message.poses.Length;
         string frameId = GetFrameId(message.header != null ? message.header.frame_id : null);
+        latestPoseArrayFrameId = frameId;
         Debug.Log("[DetectedBottlePoseSubscriber] PoseArray received count=" + receivedCount);
 
         latestDetectedUnityPositions.Clear();
@@ -704,6 +1060,7 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
 
         Debug.Log("[DetectedBottlePoseSubscriber] Latest PoseArray cached count="
             + latestDetectedUnityPositions.Count);
+        latestDetectedCount = latestDetectedUnityPositions.Count;
         Debug.Log("[DetectedBottlePoseSubscriber] PoseArray frame_id=" + frameId
             + " coordinateMode=" + OpticalFrameCoordinateMode);
 
@@ -712,6 +1069,8 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
             Debug.Log("[DetectedBottlePoseSubscriber] Cached detection[" + i + "] position="
                 + latestDetectedUnityPositions[i].ToString("F3"));
         }
+
+        ForceDebugStatusRefresh();
     }
 
     private void UpdateBottleInstance(int index, PoseMsg pose, string frameId)
@@ -837,11 +1196,13 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
         instance.transform.localScale = Vector3.one * detectedBottleScale;
         instance.transform.position = bottleTargetPositions[index];
         instance.SetActive(true);
+        detectedBottleCreatedCount++;
 
         Debug.Log("[DetectedBottlePoseSubscriber] Bottle[" + index + "] created");
         Debug.Log("[DetectedBottlePoseSubscriber] Bottle[" + index + "] created or reused=created");
         Debug.Log("[DetectedBottlePoseSubscriber] Bottle[" + index + "] position="
             + bottleTargetPositions[index].ToString("F3"));
+        LogBottleVisibilityState("Detected Bottle[" + index + "] created", instance);
         ShowBottleInstance(index, logKeepVisible);
         return instance;
     }
@@ -1524,9 +1885,25 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
             return;
         }
 
-        poseArrayRos.Subscribe<PoseArrayMsg>(PoseArrayTopic, ReceivePoseArrayMessage);
+        Ros2MessageRegistryCompatibility.EnsureRegistered();
+        string rosMessageName = MessageRegistry.GetRosMessageName<PoseArrayMsg>();
+        poseArrayRos.SubscribeByMessageName(PoseArrayTopic, rosMessageName, message =>
+        {
+            if (message is PoseArrayMsg poseArrayMessage)
+            {
+                ReceivePoseArrayMessage(poseArrayMessage);
+                return;
+            }
+
+            Debug.LogError(
+                "[DetectedBottlePoseSubscriber] Topic " + PoseArrayTopic +
+                " expected PoseArrayMsg but received " + message.GetType().Name);
+        });
         subscribedPoseArrayTopic = PoseArrayTopic;
-        Debug.Log("[DetectedBottlePoseSubscriber] Subscribe " + PoseArrayTopic);
+        Debug.Log(
+            "[DetectedBottlePoseSubscriber] Subscribe " + PoseArrayTopic +
+            " messageType=" + rosMessageName);
+        ForceDebugStatusRefresh();
     }
 
     private void EnsureDefaultTopics()

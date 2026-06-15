@@ -3,6 +3,7 @@ using MixedReality.Toolkit.Input;
 using RosMessageTypes.Std;
 using TMPro;
 using Unity.Robotics.ROSTCPConnector;
+using Unity.Robotics.ROSTCPConnector.MessageGeneration;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.XR;
@@ -10,6 +11,8 @@ using UnityEngine.XR;
 [DisallowMultipleComponent]
 public class RightHandMecanumControl : MonoBehaviour
 {
+    private const float PublisherRegistrationSettleSeconds = 0.5f;
+
     private enum MecanumState
     {
         IDLE,
@@ -58,6 +61,9 @@ public class RightHandMecanumControl : MonoBehaviour
     private MecanumState state = MecanumState.IDLE;
     private ROSConnection ros;
     private string registeredTopic;
+    private bool publisherRegistered;
+    private float publisherReadyRealtime;
+    private bool loggedPublishSkippedBeforeRegistration;
     private GameObject popupPanel;
     private bool ownsPopupCanvas;
     private Transform cachedCameraTransform;
@@ -74,6 +80,14 @@ public class RightHandMecanumControl : MonoBehaviour
     private float lastDeltaX;
     private float lastDeltaZ;
     private float lastRollDelta;
+
+    private void Awake()
+    {
+        if (Application.isPlaying)
+        {
+            EnsurePublisher();
+        }
+    }
 
     private void Start()
     {
@@ -316,6 +330,11 @@ public class RightHandMecanumControl : MonoBehaviour
         }
 
         EnsurePublisher();
+        if (!CanPublish())
+        {
+            return;
+        }
+
         var message = new Float32MultiArrayMsg
         {
             data = new[]
@@ -344,13 +363,56 @@ public class RightHandMecanumControl : MonoBehaviour
         }
 
         ros ??= ROSConnection.GetOrCreateInstance();
-        if (registeredTopic == topicName)
+        if (registeredTopic == topicName && publisherRegistered)
         {
             return;
         }
 
+        Ros2MessageRegistryCompatibility.EnsureRegistered();
         ros.RegisterPublisher<Float32MultiArrayMsg>(topicName, queueSize, false);
         registeredTopic = topicName;
+        publisherRegistered = true;
+        publisherReadyRealtime = Time.realtimeSinceStartup + PublisherRegistrationSettleSeconds;
+        loggedPublishSkippedBeforeRegistration = false;
+        Debug.Log(
+            "[RightHandMecanumControl] RegisterPublisher " + topicName +
+            " messageType=" + MessageRegistry.GetRosMessageName<Float32MultiArrayMsg>() +
+            " readyAfter=" + PublisherRegistrationSettleSeconds.ToString("F2") + "s");
+    }
+
+    private bool CanPublish()
+    {
+        if (ros == null || !publisherRegistered)
+        {
+            LogPublishSkippedBeforeRegistration("publisher is not registered");
+            return false;
+        }
+
+        if (ros.HasConnectionError)
+        {
+            LogPublishSkippedBeforeRegistration("ROS connection is not ready");
+            return false;
+        }
+
+        if (Time.realtimeSinceStartup < publisherReadyRealtime)
+        {
+            LogPublishSkippedBeforeRegistration("waiting for ROS-TCP publisher registration to settle");
+            return false;
+        }
+
+        loggedPublishSkippedBeforeRegistration = false;
+        return true;
+    }
+
+    private void LogPublishSkippedBeforeRegistration(string reason)
+    {
+        if (loggedPublishSkippedBeforeRegistration)
+        {
+            return;
+        }
+
+        loggedPublishSkippedBeforeRegistration = true;
+        Debug.LogWarning("[RightHandMecanumControl] Publish skipped for " + topicName + ": " + reason);
     }
 
     private void EnsurePopup()

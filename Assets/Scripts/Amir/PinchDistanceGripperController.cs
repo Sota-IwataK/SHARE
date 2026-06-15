@@ -1,5 +1,6 @@
 using System.Reflection;
 using Unity.Robotics.ROSTCPConnector;
+using Unity.Robotics.ROSTCPConnector.MessageGeneration;
 using UnityEngine;
 using UnityEngine.Serialization;
 using RosString = RosMessageTypes.Std.StringMsg;
@@ -7,6 +8,8 @@ using RosString = RosMessageTypes.Std.StringMsg;
 [DisallowMultipleComponent]
 public class PinchDistanceGripperController : MonoBehaviour
 {
+    private const float PublisherRegistrationSettleSeconds = 0.5f;
+
     private enum GripperState
     {
         Unknown,
@@ -84,11 +87,22 @@ public class PinchDistanceGripperController : MonoBehaviour
 
     private ROSConnection ros;
     private string registeredTopic;
+    private bool publisherRegistered;
+    private float publisherReadyRealtime;
     private GripperState currentState = GripperState.Unknown;
     private float nextPublishAllowedTime;
     private float nextDistanceLogTime;
     private bool loggedMissingTransforms;
     private bool loggedInvalidTopic;
+    private bool loggedPublishSkippedBeforeRegistration;
+
+    private void Awake()
+    {
+        if (Application.isPlaying)
+        {
+            EnsurePublisher();
+        }
+    }
 
     private void OnEnable()
     {
@@ -221,14 +235,21 @@ public class PinchDistanceGripperController : MonoBehaviour
         }
 
         ros ??= ROSConnection.GetOrCreateInstance();
-        if (ros == null || registeredTopic == topicName)
+        if (ros == null || (registeredTopic == topicName && publisherRegistered))
         {
             return;
         }
 
+        Ros2MessageRegistryCompatibility.EnsureRegistered();
         ros.RegisterPublisher<RosString>(topicName, queueSize, false);
         registeredTopic = topicName;
-        Debug.Log("[PinchDistanceGripperController] RegisterPublisher " + topicName);
+        publisherRegistered = true;
+        publisherReadyRealtime = Time.realtimeSinceStartup + PublisherRegistrationSettleSeconds;
+        loggedPublishSkippedBeforeRegistration = false;
+        Debug.Log(
+            "[PinchDistanceGripperController] RegisterPublisher " + topicName +
+            " messageType=" + MessageRegistry.GetRosMessageName<RosString>() +
+            " readyAfter=" + PublisherRegistrationSettleSeconds.ToString("F2") + "s");
     }
 
     private bool TryPublishState(GripperState nextState, string command, float distance)
@@ -239,7 +260,7 @@ public class PinchDistanceGripperController : MonoBehaviour
         }
 
         EnsurePublisher();
-        if (ros == null || string.IsNullOrWhiteSpace(topicName))
+        if (ros == null || string.IsNullOrWhiteSpace(topicName) || !CanPublish())
         {
             return false;
         }
@@ -266,6 +287,41 @@ public class PinchDistanceGripperController : MonoBehaviour
             " topic=" + topicName);
 
         return true;
+    }
+
+    private bool CanPublish()
+    {
+        if (!publisherRegistered)
+        {
+            LogPublishSkippedBeforeRegistration("publisher is not registered");
+            return false;
+        }
+
+        if (ros != null && ros.HasConnectionError)
+        {
+            LogPublishSkippedBeforeRegistration("ROS connection is not ready");
+            return false;
+        }
+
+        if (Time.realtimeSinceStartup < publisherReadyRealtime)
+        {
+            LogPublishSkippedBeforeRegistration("waiting for ROS-TCP publisher registration to settle");
+            return false;
+        }
+
+        loggedPublishSkippedBeforeRegistration = false;
+        return true;
+    }
+
+    private void LogPublishSkippedBeforeRegistration(string reason)
+    {
+        if (loggedPublishSkippedBeforeRegistration)
+        {
+            return;
+        }
+
+        loggedPublishSkippedBeforeRegistration = true;
+        Debug.LogWarning("[PinchDistanceGripperController] Publish skipped for " + topicName + ": " + reason);
     }
 
     private void LogDebugStatus(bool hasDistance, float distance)
