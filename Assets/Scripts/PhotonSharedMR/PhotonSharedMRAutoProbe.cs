@@ -32,6 +32,7 @@ public class PhotonSharedMRAutoProbe : MonoBehaviour
     private float quitTime;
     private int quitExitCode;
     private bool sessionStartRequested;
+    private bool spawnRequested;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void CreateFromCommandLine()
@@ -86,10 +87,14 @@ public class PhotonSharedMRAutoProbe : MonoBehaviour
 
         float elapsed = Time.realtimeSinceStartup - startTime;
         PhotonFusionSharedRoomBootstrap bootstrap = FindObjectOfType<PhotonFusionSharedRoomBootstrap>();
+        PhotonSharedBottleSpawner bottleSpawner = FindObjectOfType<PhotonSharedBottleSpawner>();
         RoleBasedInfoFilter filter = FindObjectOfType<RoleBasedInfoFilter>();
         NetworkUserAvatar[] avatars = FindObjectsOfType<NetworkUserAvatar>();
         NetworkedSharedSceneObject[] sharedObjects = FindObjectsOfType<NetworkedSharedSceneObject>();
-        NetworkedSharedSceneObject bottle = FindSharedObject(sharedObjects, SharedNetworkObjectKind.Bottle);
+        NetworkedSharedSceneObject photonSharedBottle = FindPhotonSharedBottle(sharedObjects);
+        NetworkedSharedSceneObject bottle = photonSharedBottle != null
+            ? photonSharedBottle
+            : FindSharedObject(sharedObjects, SharedNetworkObjectKind.Bottle);
 
         if (!sessionStartRequested && bootstrap != null)
         {
@@ -132,6 +137,16 @@ public class PhotonSharedMRAutoProbe : MonoBehaviour
         bool localAvatar = NetworkUserAvatar.Local != null;
         bool remoteAvatar = avatars.Length >= 2 || activePlayers >= 2;
 
+        if (runnerRunning && localAvatar && bottleSpawner != null && !spawnRequested
+            && (!requireRemote || probeIsHostLikeUser))
+        {
+            spawnRequested = true;
+            bottleSpawner.RequestSpawnInFrontOfHmd();
+            Debug.Log("[PhotonSharedMRAutoProbe] DYNAMIC_BOTTLE_SPAWN_REQUEST label=" + probeLabel
+                + " prefab=" + (bottleSpawner.networkBottlePrefab != null ? bottleSpawner.networkBottlePrefab.name : "MissingPrefab")
+                + " sharedBottleCountBefore=" + bottleSpawner.SharedNetworkBottleCount);
+        }
+
         if (runnerRunning && !roleSwitched && filter != null)
         {
             filter.SetScoutRole();
@@ -151,6 +166,8 @@ public class PhotonSharedMRAutoProbe : MonoBehaviour
                 + " avatarCount=" + avatars.Length
                 + " sharedObjectCount=" + sharedObjects.Length
                 + " bottlePresent=" + (bottle != null)
+                + " photonSharedBottlePresent=" + (photonSharedBottle != null)
+                + " photonSharedBottleCount=" + (bottleSpawner != null ? bottleSpawner.SharedNetworkBottleCount : 0)
                 + " localAvatar=" + localAvatar
                 + " remoteAvatar=" + remoteAvatar);
         }
@@ -184,7 +201,7 @@ public class PhotonSharedMRAutoProbe : MonoBehaviour
         bool pass = runnerRunning
             && localAvatar
             && roleSwitched
-            && bottle != null
+            && photonSharedBottle != null
             && (!requireRemote || remoteAvatar)
             && (!grabBottle || grabStatusLogged);
 
@@ -245,6 +262,19 @@ public class PhotonSharedMRAutoProbe : MonoBehaviour
         for (int i = 0; i < sharedObjects.Length; i++)
         {
             if (sharedObjects[i] != null && sharedObjects[i].objectKind == kind)
+            {
+                return sharedObjects[i];
+            }
+        }
+
+        return null;
+    }
+
+    private static NetworkedSharedSceneObject FindPhotonSharedBottle(NetworkedSharedSceneObject[] sharedObjects)
+    {
+        for (int i = 0; i < sharedObjects.Length; i++)
+        {
+            if (sharedObjects[i] != null && sharedObjects[i].IsPhotonSharedNetworkBottle)
             {
                 return sharedObjects[i];
             }

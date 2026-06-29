@@ -27,8 +27,14 @@ public class HmdOverheadCursor : MonoBehaviour
     public Color supervisorColor = new Color(1f, 0.74f, 0.2f, 1f);
     public Color unknownColor = Color.white;
 
+    [Header("Debug")]
+    public bool enableDebugLogs;
+
     private Material cursorMaterial;
     private bool roleFilterVisible = true;
+    private bool networkReady;
+    private bool waitingForAvatarSpawnLogged;
+    private bool networkReadyLogged;
     private bool currentlyVisible;
     private string lastLabel;
     private SharedUserRole lastRole = (SharedUserRole)(-1);
@@ -50,8 +56,10 @@ public class HmdOverheadCursor : MonoBehaviour
         RoleBasedInfoFilter filter = FindObjectOfType<RoleBasedInfoFilter>(true);
         if (filter != null)
         {
-            SetRoleFilterVisible(filter.CurrentHmdOverheadCursorsVisible);
+            roleFilterVisible = filter.CurrentHmdOverheadCursorsVisible;
         }
+
+        SetVisible(false);
     }
 
     private void LateUpdate()
@@ -63,12 +71,24 @@ public class HmdOverheadCursor : MonoBehaviour
             return;
         }
 
-        Vector3 headPosition = headAnchor != null ? headAnchor.position : avatar.HeadWorldPosition;
-        Camera mainCamera = Camera.main;
-        bool visible = roleFilterVisible && !avatar.IsLocalUser;
-        if (visible && minVisibleDistance > 0f && mainCamera != null)
+        if (!avatar.IsNetworkStateReady)
         {
-            float distance = Vector3.Distance(mainCamera.transform.position, headPosition);
+            SetVisible(false);
+            LogWaitingForAvatarSpawnOnce();
+            return;
+        }
+
+        if (!networkReady)
+        {
+            NotifyAvatarNetworkSpawned();
+        }
+
+        Vector3 headPosition = headAnchor != null ? headAnchor.position : avatar.HeadWorldPosition;
+        Transform viewTransform = NetworkUserAvatar.LocalViewTransform;
+        bool visible = roleFilterVisible && !avatar.IsLocalUser && !avatar.IsPcObserverAvatar;
+        if (visible && minVisibleDistance > 0f && viewTransform != null)
+        {
+            float distance = Vector3.Distance(viewTransform.position, headPosition);
             visible = distance >= minVisibleDistance;
         }
 
@@ -79,14 +99,44 @@ public class HmdOverheadCursor : MonoBehaviour
         }
 
         transform.position = headPosition + Vector3.up * cursorVerticalOffset;
-        FaceMainCamera(mainCamera);
+        FaceViewTransform(viewTransform);
         RefreshLabelAndColor();
     }
 
     public void SetRoleFilterVisible(bool visible)
     {
         roleFilterVisible = visible;
-        SetVisible(roleFilterVisible && avatar != null && !avatar.IsLocalUser);
+        if (avatar == null || !avatar.IsNetworkStateReady)
+        {
+            SetVisible(false);
+            return;
+        }
+
+        SetVisible(roleFilterVisible && !avatar.IsLocalUser && !avatar.IsPcObserverAvatar);
+    }
+
+    public void NotifyAvatarNetworkSpawned()
+    {
+        ResolveAvatar();
+        networkReady = true;
+        waitingForAvatarSpawnLogged = false;
+        if (!networkReadyLogged)
+        {
+            networkReadyLogged = true;
+            LogDebug("PHOTON_HMD_CURSOR_NETWORK_READY");
+        }
+
+        if (avatar != null && avatar.IsNetworkStateReady)
+        {
+            RefreshLabelAndColor();
+        }
+    }
+
+    public void NotifyAvatarNetworkDespawned()
+    {
+        networkReady = false;
+        networkReadyLogged = false;
+        SetVisible(false);
     }
 
     private void ResolveAvatar()
@@ -150,22 +200,22 @@ public class HmdOverheadCursor : MonoBehaviour
         }
     }
 
-    private void FaceMainCamera(Camera camera)
+    private void FaceViewTransform(Transform viewTransform)
     {
-        if (!billboardToCamera || camera == null)
+        if (!billboardToCamera || viewTransform == null)
         {
             lastFacingDot = 0f;
             return;
         }
 
-        Vector3 forward = transform.position - camera.transform.position;
+        Vector3 forward = transform.position - viewTransform.position;
         if (forward.sqrMagnitude < 0.0001f)
         {
-            forward = camera.transform.forward;
+            forward = viewTransform.forward;
         }
 
         transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
-        Vector3 toCamera = camera.transform.position - transform.position;
+        Vector3 toCamera = viewTransform.position - transform.position;
         lastFacingDot = toCamera.sqrMagnitude > 0.0001f
             ? Vector3.Dot(-transform.forward, toCamera.normalized)
             : 0f;
@@ -173,6 +223,11 @@ public class HmdOverheadCursor : MonoBehaviour
 
     private void RefreshLabelAndColor()
     {
+        if (avatar == null || !avatar.IsNetworkStateReady)
+        {
+            return;
+        }
+
         SharedUserRole role = avatar.CurrentRole;
         string label = BuildLabel(avatar);
         if (labelText != null && label != lastLabel)
@@ -200,15 +255,10 @@ public class HmdOverheadCursor : MonoBehaviour
 
     private string BuildLabel(NetworkUserAvatar targetAvatar)
     {
-        string userName = string.IsNullOrWhiteSpace(targetAvatar.CurrentUserName)
+        string userName = string.IsNullOrWhiteSpace(targetAvatar.DisplayPlayerLabel)
             ? PhotonSharedMRSessionSettings.DefaultUserName
-            : targetAvatar.CurrentUserName;
+            : targetAvatar.DisplayPlayerLabel;
         string label = userName + "\n" + targetAvatar.CurrentRole;
-
-        if (showHostLikeFlag && targetAvatar.IsHostLikeUser)
-        {
-            label += " / Host-like";
-        }
 
         if (showRobotTarget)
         {
@@ -243,6 +293,29 @@ public class HmdOverheadCursor : MonoBehaviour
         {
             renderers[i].enabled = visible;
         }
+    }
+
+    private void LogWaitingForAvatarSpawnOnce()
+    {
+        if (waitingForAvatarSpawnLogged)
+        {
+            return;
+        }
+
+        waitingForAvatarSpawnLogged = true;
+        LogDebug("PHOTON_HMD_CURSOR_WAITING_FOR_AVATAR_SPAWN");
+    }
+
+    private void LogDebug(string eventName)
+    {
+        if (!enableDebugLogs)
+        {
+            return;
+        }
+
+        Debug.Log("[HmdOverheadCursor] " + eventName
+            + " avatar=" + (avatar != null ? avatar.name : "MissingAvatar")
+            + " networkReady=" + (avatar != null && avatar.IsNetworkStateReady));
     }
 
     private static Material CreateMaterial(Color color)

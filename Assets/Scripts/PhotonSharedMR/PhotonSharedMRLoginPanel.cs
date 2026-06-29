@@ -4,23 +4,36 @@ using System.Threading.Tasks;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.Events;
 using UnityEngine.UI;
 using UnityEngine.XR.Interaction.Toolkit.UI;
 
 [DisallowMultipleComponent]
 public class PhotonSharedMRLoginPanel : MonoBehaviour
 {
+    private const string CanvasObjectName = "StartupPhotonLoginPanelCanvas";
+    private const string PanelObjectName = "StartupPhotonLoginPanel";
+
     [Header("Session")]
     public PhotonFusionSharedRoomBootstrap bootstrap;
     public RoleBasedInfoFilter roleFilter;
     public PhotonSharedMRSessionSettings defaultSettings = PhotonSharedMRSessionSettings.CreateDefault();
     public bool suppressBootstrapAutoJoin = true;
     public bool hidePanelAfterStart = true;
+    public bool enableRuntimePanel = true;
+    public bool showOnStart = true;
+    public bool reopenOnLeaveOrDisconnect = true;
+    public bool hideRobotSelectionForPcObserver = true;
 
     [Header("Panel Placement")]
     public float spawnDistance = 0.85f;
     public float verticalOffset = -0.08f;
     public float panelScale = 0.0015f;
+    public float loginDistanceFromHead = 0.90f;
+    public float loginHorizontalOffset = 0.00f;
+    public float loginVerticalOffset = -0.12f;
+    public float loginScale = 0.001f;
+    public bool faceCameraOnOpen = true;
 
     [Header("UI References")]
     public GameObject panelRoot;
@@ -30,11 +43,24 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
     public TMP_Dropdown roleDropdown;
     public TMP_Dropdown robotTargetDropdown;
     public TMP_InputField roomNameInput;
+    public Button amirRobotButton;
+    public Button roverRobotButton;
+    public Button droneRobotButton;
+    public Button observerRobotButton;
     public Button startButton;
+    public Button retryButton;
+    public TMP_Text selectionText;
+    public TMP_Text protocolText;
+    public TMP_Text fixedRegionText;
     public TMP_Text statusText;
+    public TMP_Text errorText;
 
     private bool uiInitialized;
     private bool startRequested;
+    private bool wasJoined;
+    private bool hasSelectedRobot;
+    private SharedMRRobotTarget selectedRobotTarget = SharedMRRobotTarget.Amir;
+    private float nextStatusRefreshTime;
 
     private void Awake()
     {
@@ -44,52 +70,118 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
             bootstrap.autoJoinOnStart = false;
         }
 
-        EnsureUi();
-        PopulateUi(defaultSettings);
-        SetPanelVisible(true);
+        if (enableRuntimePanel)
+        {
+            EnsureUi();
+            PopulateUi(defaultSettings);
+            SetPanelVisible(false);
+            RefreshStatusText(true);
+        }
     }
 
-    private void LateUpdate()
+    private void Start()
     {
-        if (panelRoot == null || !panelRoot.activeSelf || Camera.main == null)
+        if (enableRuntimePanel && showOnStart && !IsJoined())
+        {
+            OpenLoginPanel();
+        }
+    }
+
+    private void Update()
+    {
+        if (!enableRuntimePanel)
         {
             return;
         }
 
-        Transform cameraTransform = Camera.main.transform;
-        Transform panelTransform = panelRoot.transform;
-        panelTransform.position = cameraTransform.position
-            + cameraTransform.forward.normalized * spawnDistance
-            + Vector3.up * verticalOffset;
-        panelTransform.localScale = Vector3.one * Mathf.Max(0.0001f, panelScale);
-
-        Vector3 forward = panelTransform.position - cameraTransform.position;
-        if (forward.sqrMagnitude < 0.0001f)
+        if (Time.unscaledTime >= nextStatusRefreshTime)
         {
-            forward = cameraTransform.forward;
+            RefreshStatusText(false);
+            nextStatusRefreshTime = Time.unscaledTime + 0.2f;
         }
 
-        panelTransform.rotation = Quaternion.LookRotation(forward, Vector3.up);
+        bool joined = IsJoined();
+        if (joined)
+        {
+            wasJoined = true;
+            return;
+        }
+
+        if (wasJoined && reopenOnLeaveOrDisconnect)
+        {
+            wasJoined = false;
+            ResetStartRequest();
+            OpenLoginPanel();
+        }
     }
 
     public void StartSessionFromUi()
     {
         PhotonSharedMRSessionSettings settings = CollectSettingsFromUi();
+        if (!IsPcAutoObserverRuntime() && !hasSelectedRobot)
+        {
+            SetError("操作ロボットを選択してください。");
+            RefreshSelectionVisuals();
+            return;
+        }
+
         _ = StartSessionWithSettings(settings);
+    }
+
+    public void RetrySessionFromUi()
+    {
+        if (IsJoined())
+        {
+            return;
+        }
+
+        startRequested = false;
+        StartSessionFromUi();
     }
 
     public async Task StartSessionWithSettings(PhotonSharedMRSessionSettings settings)
     {
+        EnsureBootstrap(nameof(StartSessionWithSettings), false);
+        string joinStatus = bootstrap != null ? bootstrap.LastJoinStatus : "MissingBootstrap";
+        bool runnerIsRunning = bootstrap != null && bootstrap.RunnerIsRunning;
+        bool calibrationInProgress = PhotonSharedMRCalibrationGuard.CalibrationInProgress;
+        LogStartSessionCalled(joinStatus, runnerIsRunning, calibrationInProgress);
+
+        if (runnerIsRunning && IsJoinedStatus(joinStatus))
+        {
+            wasJoined = true;
+            startRequested = false;
+            SetStartInteractable(false);
+            RefreshStatusText(true);
+            if (enableRuntimePanel && hidePanelAfterStart)
+            {
+                CloseLoginPanel();
+            }
+
+            return;
+        }
+
+        if (calibrationInProgress)
+        {
+            SetStatus("Connection Status: CalibrationInProgress");
+            SetError("Start session blocked during calibration.");
+            SetStartInteractable(true);
+            startRequested = false;
+            return;
+        }
+
         if (startRequested)
         {
             return;
         }
 
         startRequested = true;
-        settings ??= PhotonSharedMRSessionSettings.CreateDefault();
+        settings = BuildFixedSettings(settings);
         settings.Sanitize();
+        defaultSettings = settings.Clone();
 
-        SetStatus("Joining " + settings.roomName + " ...");
+        SetStatus("Connection Status: Joining " + settings.roomName + " ...");
+        SetError(string.Empty);
         SetStartInteractable(false);
 
         if (roleFilter != null)
@@ -97,17 +189,15 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
             roleFilter.SetManualRole(settings.role);
         }
 
-        if (bootstrap == null)
+        if (EnsureBootstrap(nameof(StartSessionWithSettings), true) == null)
         {
-            ResolveSceneReferences();
-        }
-
-        if (bootstrap == null)
-        {
-            SetStatus("Photon bootstrap is missing.");
+            SetStatus("Connection Status: MissingBootstrap");
+            SetError("Photon bootstrap is missing. source=PhotonSharedMRLoginPanel.StartSessionWithSettings");
             SetStartInteractable(true);
             startRequested = false;
-            Debug.LogError("[PhotonSharedMRLoginPanel] PhotonFusionSharedRoomBootstrap was not found.");
+            Debug.LogError("[PhotonSharedMRLoginPanel] Photon bootstrap is missing"
+                + " method=" + nameof(StartSessionWithSettings)
+                + " calibrationInProgress=" + PhotonSharedMRCalibrationGuard.CalibrationInProgress);
             return;
         }
 
@@ -115,19 +205,62 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
 
         if (bootstrap.IsRunning)
         {
-            SetStatus("Joined " + settings.roomName);
-            if (hidePanelAfterStart)
+            wasJoined = true;
+            RefreshStatusText(true);
+            if (enableRuntimePanel && hidePanelAfterStart)
             {
-                SetPanelVisible(false);
-                enabled = false;
+                CloseLoginPanel();
             }
         }
         else
         {
-            SetStatus("Join failed. See Console.");
+            SetStatus("Connection Status: Join failed");
+            SetError(string.IsNullOrWhiteSpace(bootstrap.LastError) ? "Join failed. See Console." : bootstrap.LastError);
             SetStartInteractable(true);
             startRequested = false;
+            if (enableRuntimePanel)
+            {
+                SetPanelVisible(true);
+            }
         }
+    }
+
+    public void EnsurePanel()
+    {
+        if (!enableRuntimePanel)
+        {
+            return;
+        }
+
+        ResolveSceneReferences();
+        EnsureUi();
+        PopulateUi(defaultSettings);
+        RefreshStatusText(true);
+    }
+
+    public void OpenLoginPanel()
+    {
+        enableRuntimePanel = true;
+        EnsurePanel();
+        SetPanelVisible(true);
+        ApplyOpenPose(Camera.main != null ? Camera.main.transform : null);
+        SetStartInteractable(!startRequested && !IsJoined());
+        RefreshStatusText(true);
+    }
+
+    public void OpenLoginPanelAtHead(Transform head)
+    {
+        enableRuntimePanel = true;
+        EnsurePanel();
+        SetPanelVisible(true);
+        ApplyOpenPose(head);
+        SetStartInteractable(!startRequested && !IsJoined());
+        RefreshStatusText(true);
+    }
+
+    public void CloseLoginPanel()
+    {
+        SetPanelVisible(false);
     }
 
     public void SetPanelVisible(bool visible)
@@ -135,31 +268,122 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
         if (panelRoot != null)
         {
             panelRoot.SetActive(visible);
+            Canvas canvas = panelRoot.GetComponent<Canvas>();
+            if (canvas != null && Camera.main != null)
+            {
+                canvas.worldCamera = Camera.main;
+            }
         }
+    }
+
+    public void ResetStartRequest()
+    {
+        startRequested = false;
+        SetStartInteractable(true);
     }
 
     public PhotonSharedMRSessionSettings CollectSettingsFromUi()
     {
-        PhotonSharedMRSessionSettings settings = defaultSettings != null
-            ? defaultSettings.Clone()
+        return BuildFixedSettings(defaultSettings);
+    }
+
+    public void SelectAmirRobot()
+    {
+        SelectRobot(SharedMRRobotTarget.Amir);
+    }
+
+    public void SelectRoverRobot()
+    {
+        SelectRobot(SharedMRRobotTarget.Rover);
+    }
+
+    public void SelectDroneRobot()
+    {
+        SelectRobot(SharedMRRobotTarget.Drone);
+    }
+
+    public void SelectObserverRobot()
+    {
+        SelectRobot(SharedMRRobotTarget.Observer);
+    }
+
+    private void SelectRobot(SharedMRRobotTarget robotTarget)
+    {
+        selectedRobotTarget = robotTarget;
+        hasSelectedRobot = true;
+        defaultSettings = BuildFixedSettings(defaultSettings);
+        if (roleFilter != null)
+        {
+            roleFilter.SetManualRole(defaultSettings.role);
+        }
+
+        RefreshSelectionVisuals();
+        RefreshStatusText(true);
+    }
+
+    private PhotonSharedMRSessionSettings BuildFixedSettings(PhotonSharedMRSessionSettings seed)
+    {
+        PhotonSharedMRSessionSettings settings = seed != null
+            ? seed.Clone()
             : PhotonSharedMRSessionSettings.CreateDefault();
 
-        settings.userName = userNameInput != null ? userNameInput.text : settings.userName;
-        settings.isHostLikeUser = hostModeDropdown == null || hostModeDropdown.value == 0;
-        settings.deviceType = ReadDropdownEnum(deviceTypeDropdown, settings.deviceType);
-        settings.role = ReadDropdownEnum(roleDropdown, settings.role);
-        settings.robotTarget = ReadDropdownEnum(robotTargetDropdown, settings.robotTarget);
-        settings.roomName = roomNameInput != null ? roomNameInput.text : settings.roomName;
+        ShareDeviceType deviceType = DetectDeviceType();
+        if (PhotonSharedMRSessionSettings.IsPcObserverDevice(deviceType))
+        {
+            return PhotonSharedMRSessionSettings.CreatePcObserverDefaults(deviceType);
+        }
+
+        settings.roomName = PhotonSharedMRSessionSettings.DefaultRoomName;
+        settings.userName = PhotonSharedMRSessionSettings.BuildRobotDisplayName(
+            selectedRobotTarget,
+            ResolveRoleForRobot(selectedRobotTarget));
+        settings.isHostLikeUser = true;
+        settings.deviceType = deviceType;
+        settings.robotTarget = selectedRobotTarget;
+        settings.role = ResolveRoleForRobot(selectedRobotTarget);
         settings.Sanitize();
         return settings;
+    }
+
+    private static SharedUserRole ResolveRoleForRobot(SharedMRRobotTarget robotTarget)
+    {
+        switch (robotTarget)
+        {
+            case SharedMRRobotTarget.Drone:
+                return SharedUserRole.Scout;
+            case SharedMRRobotTarget.Observer:
+                return SharedUserRole.Supervisor;
+            case SharedMRRobotTarget.Amir:
+            case SharedMRRobotTarget.Rover:
+            default:
+                return SharedUserRole.ManipulatorOperator;
+        }
+    }
+
+    private static ShareDeviceType DetectDeviceType()
+    {
+#if UNITY_ANDROID && !UNITY_EDITOR
+        return ShareDeviceType.QuestStandalone;
+#elif UNITY_STANDALONE_WIN && !UNITY_EDITOR
+        return ShareDeviceType.PC;
+#else
+        return ShareDeviceType.PCEditor;
+#endif
+    }
+
+    private static bool IsPcAutoObserverRuntime()
+    {
+        return PhotonSharedMRSessionSettings.IsPcObserverDevice(DetectDeviceType());
     }
 
     private void ResolveSceneReferences()
     {
         if (bootstrap == null)
         {
-            bootstrap = FindObjectOfType<PhotonFusionSharedRoomBootstrap>(true);
+            EnsureBootstrap(nameof(ResolveSceneReferences), false);
         }
+
+        EnsureBootstrap(nameof(ResolveSceneReferences), false);
 
         if (roleFilter == null)
         {
@@ -171,23 +395,34 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
     {
         if (uiInitialized)
         {
+            ApplyPcObserverUiState();
             return;
         }
 
         if (panelRoot == null)
         {
+            Transform existing = transform.Find(CanvasObjectName);
+            panelRoot = existing != null ? existing.gameObject : CreatePanelUi();
+        }
+
+        ResolveUiReferences();
+        if (!HasRequiredUi())
+        {
+            DestroyObject(panelRoot);
             panelRoot = CreatePanelUi();
+            ResolveUiReferences();
         }
 
         EnsureEventSystem();
         WireStartButton();
         uiInitialized = true;
+        ApplyPcObserverUiState();
     }
 
     private GameObject CreatePanelUi()
     {
         GameObject canvasObject = new GameObject(
-            "LoginPanelCanvas",
+            CanvasObjectName,
             typeof(RectTransform),
             typeof(Canvas),
             typeof(CanvasScaler),
@@ -204,9 +439,9 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
 
         RectTransform canvasRect = canvasObject.GetComponent<RectTransform>();
         canvasRect.sizeDelta = new Vector2(520f, 620f);
-        canvasRect.localScale = Vector3.one * Mathf.Max(0.0001f, panelScale);
+        canvasRect.localScale = Vector3.one * Mathf.Max(0.0001f, loginScale);
 
-        GameObject panel = CreateUiObject("LoginPanel", canvasObject.transform, typeof(Image));
+        GameObject panel = CreateUiObject(PanelObjectName, canvasObject.transform, typeof(Image));
         RectTransform panelRect = panel.GetComponent<RectTransform>();
         panelRect.anchorMin = Vector2.zero;
         panelRect.anchorMax = Vector2.one;
@@ -216,16 +451,20 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
         Image panelImage = panel.GetComponent<Image>();
         panelImage.color = new Color(0.03f, 0.06f, 0.08f, 0.94f);
 
-        CreateLabel(panel.transform, "Title", "Photon Shared MR Login", 28, new Vector2(0f, 255f), new Vector2(460f, 46f), FontStyles.Bold);
+        CreateLabel(panel.transform, "Title", "Photon Shared MR", 30, new Vector2(0f, 248f), new Vector2(460f, 48f), FontStyles.Bold);
+        selectionText = CreateLabel(panel.transform, "RobotSelectionLabel", "操作ロボットを選択", 22, new Vector2(0f, 194f), new Vector2(460f, 36f), FontStyles.Normal);
 
-        userNameInput = CreateInput(panel.transform, "UserNameInput", "UserName", new Vector2(0f, 190f));
-        hostModeDropdown = CreateDropdown(panel.transform, "HostModeDropdown", "Start as Host-like", new[] { "Host-like", "Client-like" }, new Vector2(0f, 125f));
-        deviceTypeDropdown = CreateEnumDropdown(panel.transform, "DeviceTypeDropdown", typeof(ShareDeviceType), new Vector2(0f, 60f));
-        roleDropdown = CreateEnumDropdown(panel.transform, "RoleDropdown", typeof(SharedUserRole), new Vector2(0f, -5f));
-        robotTargetDropdown = CreateEnumDropdown(panel.transform, "RobotTargetDropdown", typeof(SharedMRRobotTarget), new Vector2(0f, -70f));
-        roomNameInput = CreateInput(panel.transform, "RoomNameInput", "RoomName", new Vector2(0f, -135f));
-        startButton = CreateButton(panel.transform, "StartButton", "Start", new Vector2(0f, -215f));
-        statusText = CreateLabel(panel.transform, "StatusText", "Waiting for Start", 18, new Vector2(0f, -275f), new Vector2(460f, 36f), FontStyles.Normal);
+        amirRobotButton = CreateButton(panel.transform, "AmirButton", "AMIR", new Vector2(-118f, 128f));
+        roverRobotButton = CreateButton(panel.transform, "RoverButton", "Rover", new Vector2(118f, 128f));
+        droneRobotButton = CreateButton(panel.transform, "DroneButton", "Drone", new Vector2(-118f, 58f));
+        observerRobotButton = CreateButton(panel.transform, "ObserverButton", "Observer", new Vector2(118f, 58f));
+
+        protocolText = CreateLabel(panel.transform, "ProtocolText", "Room: SHARE-MR-Room", 16, new Vector2(0f, 2f), new Vector2(430f, 24f), FontStyles.Normal);
+        fixedRegionText = CreateLabel(panel.transform, "FixedRegionText", "Mode: AutoHostOrClient", 16, new Vector2(0f, -26f), new Vector2(430f, 24f), FontStyles.Normal);
+        startButton = CreateButton(panel.transform, "StartButton", "共有空間に参加", new Vector2(0f, -98f));
+        statusText = CreateLabel(panel.transform, "StatusText", "Connection Status: NotStarted", 17, new Vector2(0f, -176f), new Vector2(460f, 58f), FontStyles.Normal);
+        errorText = CreateLabel(panel.transform, "LastErrorText", "Last Error: None", 16, new Vector2(0f, -250f), new Vector2(460f, 58f), FontStyles.Normal);
+        errorText.color = new Color(1f, 0.55f, 0.45f, 1f);
 
         return canvasObject;
     }
@@ -234,36 +473,106 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
     {
         settings ??= PhotonSharedMRSessionSettings.CreateDefault();
         settings.Sanitize();
-
-        if (userNameInput != null)
+        selectedRobotTarget = settings.robotTarget;
+        if (IsPcAutoObserverRuntime())
         {
-            userNameInput.text = settings.userName;
+            selectedRobotTarget = SharedMRRobotTarget.Observer;
+            hasSelectedRobot = true;
         }
 
-        if (hostModeDropdown != null)
-        {
-            hostModeDropdown.value = settings.isHostLikeUser ? 0 : 1;
-        }
-
-        SelectEnumDropdownValue(deviceTypeDropdown, settings.deviceType);
-        SelectEnumDropdownValue(roleDropdown, settings.role);
-        SelectEnumDropdownValue(robotTargetDropdown, settings.robotTarget);
-
-        if (roomNameInput != null)
-        {
-            roomNameInput.text = settings.roomName;
-        }
+        RefreshSelectionVisuals();
     }
 
-    private void WireStartButton()
+    private void ResolveUiReferences()
     {
-        if (startButton == null)
+        if (panelRoot == null)
         {
             return;
         }
 
-        startButton.onClick.RemoveListener(StartSessionFromUi);
-        startButton.onClick.AddListener(StartSessionFromUi);
+        userNameInput = FindChildComponent<TMP_InputField>("UserNameInput");
+        hostModeDropdown = FindChildComponent<TMP_Dropdown>("HostModeDropdown");
+        deviceTypeDropdown = FindChildComponent<TMP_Dropdown>("DeviceTypeDropdown");
+        roleDropdown = FindChildComponent<TMP_Dropdown>("RoleDropdown");
+        robotTargetDropdown = FindChildComponent<TMP_Dropdown>("RobotTargetDropdown");
+        roomNameInput = FindChildComponent<TMP_InputField>("RoomNameInput");
+        amirRobotButton = FindChildComponent<Button>("AmirButton");
+        roverRobotButton = FindChildComponent<Button>("RoverButton");
+        droneRobotButton = FindChildComponent<Button>("DroneButton");
+        observerRobotButton = FindChildComponent<Button>("ObserverButton");
+        startButton = FindChildComponent<Button>("StartButton");
+        retryButton = FindChildComponent<Button>("RetryButton");
+        selectionText = FindChildComponent<TMP_Text>("RobotSelectionLabel");
+        protocolText = FindChildComponent<TMP_Text>("ProtocolText");
+        fixedRegionText = FindChildComponent<TMP_Text>("FixedRegionText");
+        statusText = FindChildComponent<TMP_Text>("StatusText");
+        errorText = FindChildComponent<TMP_Text>("LastErrorText");
+    }
+
+    private bool HasRequiredUi()
+    {
+        return panelRoot != null
+            && userNameInput == null
+            && hostModeDropdown == null
+            && deviceTypeDropdown == null
+            && roleDropdown == null
+            && robotTargetDropdown == null
+            && roomNameInput == null
+            && amirRobotButton != null
+            && roverRobotButton != null
+            && droneRobotButton != null
+            && observerRobotButton != null
+            && startButton != null
+            && selectionText != null
+            && protocolText != null
+            && fixedRegionText != null
+            && statusText != null
+            && errorText != null;
+    }
+
+    private void WireStartButton()
+    {
+        WireButton(startButton, StartSessionFromUi, nameof(StartSessionFromUi));
+        WireButton(amirRobotButton, SelectAmirRobot, nameof(SelectAmirRobot));
+        WireButton(roverRobotButton, SelectRoverRobot, nameof(SelectRoverRobot));
+        WireButton(droneRobotButton, SelectDroneRobot, nameof(SelectDroneRobot));
+        WireButton(observerRobotButton, SelectObserverRobot, nameof(SelectObserverRobot));
+        WireButton(retryButton, RetrySessionFromUi, nameof(RetrySessionFromUi));
+
+        RefreshSelectionVisuals();
+    }
+
+    private void WireButton(Button button, UnityAction action, string methodName)
+    {
+        if (button == null || action == null)
+        {
+            return;
+        }
+
+        button.onClick.RemoveListener(action);
+        if (!HasPersistentListener(button.onClick, this, methodName))
+        {
+            button.onClick.AddListener(action);
+        }
+    }
+
+    private static bool HasPersistentListener(UnityEventBase unityEvent, UnityEngine.Object target, string methodName)
+    {
+        if (unityEvent == null || target == null || string.IsNullOrWhiteSpace(methodName))
+        {
+            return false;
+        }
+
+        for (int i = 0; i < unityEvent.GetPersistentEventCount(); i++)
+        {
+            if (unityEvent.GetPersistentTarget(i) == target
+                && unityEvent.GetPersistentMethodName(i) == methodName)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void SetStatus(string message)
@@ -276,12 +585,266 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
         Debug.Log("[PhotonSharedMRLoginPanel] " + message);
     }
 
+    private void SetError(string message)
+    {
+        if (errorText != null)
+        {
+            errorText.text = "Last Error: " + (string.IsNullOrWhiteSpace(message) ? "None" : message);
+        }
+    }
+
     private void SetStartInteractable(bool interactable)
     {
         if (startButton != null)
         {
-            startButton.interactable = interactable;
+            startButton.interactable = interactable && (hasSelectedRobot || IsPcAutoObserverRuntime());
         }
+
+        if (retryButton != null)
+        {
+            retryButton.interactable = interactable;
+        }
+    }
+
+    private void RefreshStatusText(bool force)
+    {
+        if (!force && panelRoot != null && !panelRoot.activeSelf)
+        {
+            return;
+        }
+
+        EnsureBootstrap(nameof(RefreshStatusText), false);
+
+        if (protocolText != null)
+        {
+            protocolText.text = "Room: " + PhotonSharedMRSessionSettings.DefaultRoomName;
+        }
+
+        if (fixedRegionText != null)
+        {
+            fixedRegionText.text = "Mode: AutoHostOrClient";
+        }
+
+        string room = PhotonSharedMRSessionSettings.DefaultRoomName;
+        string joinState = bootstrap != null ? bootstrap.LastJoinStatus : "MissingBootstrap";
+        bool joined = IsJoined();
+        bool pcAutoObserver = IsPcAutoObserverRuntime();
+        if (statusText != null)
+        {
+            statusText.text = "Connection Status: " + (joined ? "Joined" : joinState)
+                + "\nRoomName: " + room
+                + "\nRobot: " + (pcAutoObserver ? SharedMRRobotTarget.Observer.ToString() : (hasSelectedRobot ? selectedRobotTarget.ToString() : "Not Selected"));
+        }
+
+        if (force || joined || !string.IsNullOrWhiteSpace(bootstrap != null ? bootstrap.LastError : null))
+        {
+            SetError(bootstrap != null ? bootstrap.LastError : "Photon bootstrap missing.");
+        }
+
+        RefreshSelectionVisuals();
+    }
+
+    private void RefreshSelectionVisuals()
+    {
+        ApplyPcObserverUiState();
+        RefreshRobotButtonVisual(amirRobotButton, SharedMRRobotTarget.Amir);
+        RefreshRobotButtonVisual(roverRobotButton, SharedMRRobotTarget.Rover);
+        RefreshRobotButtonVisual(droneRobotButton, SharedMRRobotTarget.Drone);
+        RefreshRobotButtonVisual(observerRobotButton, SharedMRRobotTarget.Observer);
+
+        if (selectionText != null)
+        {
+            selectionText.text = hasSelectedRobot
+                ? "操作ロボット: " + selectedRobotTarget
+                : "操作ロボットを選択";
+        }
+
+        if (selectionText != null && IsPcAutoObserverRuntime())
+        {
+            selectionText.text = "Observer fixed";
+        }
+
+        if (startButton != null)
+        {
+            startButton.interactable = !startRequested && !IsJoined() && (hasSelectedRobot || IsPcAutoObserverRuntime());
+        }
+    }
+
+    private void ApplyPcObserverUiState()
+    {
+        bool pcAutoObserver = IsPcAutoObserverRuntime();
+        if (pcAutoObserver)
+        {
+            selectedRobotTarget = SharedMRRobotTarget.Observer;
+            hasSelectedRobot = true;
+        }
+
+        if (!hideRobotSelectionForPcObserver)
+        {
+            return;
+        }
+
+        SetButtonVisible(amirRobotButton, !pcAutoObserver);
+        SetButtonVisible(roverRobotButton, !pcAutoObserver);
+        SetButtonVisible(droneRobotButton, !pcAutoObserver);
+        SetButtonVisible(observerRobotButton, !pcAutoObserver);
+    }
+
+    private static void SetButtonVisible(Button button, bool visible)
+    {
+        if (button != null)
+        {
+            button.gameObject.SetActive(visible);
+        }
+    }
+
+    private void RefreshRobotButtonVisual(Button button, SharedMRRobotTarget robotTarget)
+    {
+        if (button == null)
+        {
+            return;
+        }
+
+        bool selected = hasSelectedRobot && selectedRobotTarget == robotTarget;
+        Image image = button.GetComponent<Image>();
+        if (image != null)
+        {
+            image.color = selected
+                ? new Color(0.10f, 0.58f, 0.42f, 1f)
+                : new Color(0.05f, 0.34f, 0.42f, 0.98f);
+        }
+
+        ColorBlock colors = button.colors;
+        colors.normalColor = image != null ? image.color : colors.normalColor;
+        colors.highlightedColor = selected
+            ? new Color(0.16f, 0.72f, 0.52f, 1f)
+            : new Color(0.08f, 0.48f, 0.58f, 1f);
+        colors.pressedColor = selected
+            ? new Color(0.06f, 0.42f, 0.30f, 1f)
+            : new Color(0.02f, 0.25f, 0.32f, 1f);
+        colors.selectedColor = colors.highlightedColor;
+        button.colors = colors;
+    }
+
+    private void ApplyOpenPose(Transform head)
+    {
+        if (panelRoot == null)
+        {
+            return;
+        }
+
+        if (head == null && Camera.main != null)
+        {
+            head = Camera.main.transform;
+        }
+
+        Transform panelTransform = panelRoot.transform;
+        if (head != null)
+        {
+            Vector3 forward = head.forward.sqrMagnitude > 0.0001f ? head.forward.normalized : Vector3.forward;
+            Vector3 right = head.right.sqrMagnitude > 0.0001f ? head.right.normalized : Vector3.right;
+            Vector3 up = head.up.sqrMagnitude > 0.0001f ? head.up.normalized : Vector3.up;
+            Vector3 position = head.position
+                + forward * Mathf.Max(0.05f, loginDistanceFromHead)
+                + right * loginHorizontalOffset
+                + up * loginVerticalOffset;
+
+            Quaternion rotation = panelTransform.rotation;
+            if (faceCameraOnOpen)
+            {
+                Vector3 facing = position - head.position;
+                if (facing.sqrMagnitude < 0.0001f)
+                {
+                    facing = forward;
+                }
+
+                rotation = Quaternion.LookRotation(facing, Vector3.up);
+            }
+
+            panelTransform.SetPositionAndRotation(position, rotation);
+        }
+
+        panelTransform.localScale = Vector3.one * Mathf.Max(0.00001f, loginScale);
+    }
+
+    private bool IsJoined()
+    {
+        EnsureBootstrap(nameof(IsJoined), false);
+        return bootstrap != null && bootstrap.IsRunning;
+    }
+
+    private static bool IsJoinedStatus(string joinStatus)
+    {
+        return string.Equals(joinStatus, "Joined", StringComparison.Ordinal)
+            || string.Equals(joinStatus, "AlreadyRunning", StringComparison.Ordinal);
+    }
+
+    private void LogStartSessionCalled(string joinStatus, bool runnerIsRunning, bool calibrationInProgress)
+    {
+        string stackTrace = StackTraceUtility.ExtractStackTrace();
+        string message = "[PhotonSharedMRLoginPanel] PHOTON_START_SESSION_CALLED"
+            + " joinStatus=" + (string.IsNullOrWhiteSpace(joinStatus) ? "Unknown" : joinStatus)
+            + " runnerIsRunning=" + runnerIsRunning
+            + " calibrationInProgress=" + calibrationInProgress
+            + " stackTrace=" + FormatStackTraceForLog(stackTrace);
+
+        if (calibrationInProgress)
+        {
+            Debug.LogWarning(message);
+            Debug.LogWarning("[PhotonSharedMRLoginPanel] PHOTON_START_SESSION_UNEXPECTED_DURING_CALIBRATION");
+        }
+        else
+        {
+            Debug.Log(message);
+        }
+    }
+
+    private static string FormatStackTraceForLog(string stackTrace)
+    {
+        if (string.IsNullOrWhiteSpace(stackTrace))
+        {
+            return "Unavailable";
+        }
+
+        return stackTrace
+            .Replace("\r\n", " | ")
+            .Replace('\n', '|')
+            .Replace('\r', '|');
+    }
+
+    private PhotonFusionSharedRoomBootstrap EnsureBootstrap(string method, bool logIfMissing)
+    {
+        return PhotonSharedMRBootstrapResolver.EnsureBootstrap(ref bootstrap, this, method, logIfMissing);
+    }
+
+    private T FindChildComponent<T>(string objectName) where T : Component
+    {
+        GameObject child = FindChild(panelRoot != null ? panelRoot.transform : null, objectName);
+        return child != null ? child.GetComponent<T>() : null;
+    }
+
+    private static GameObject FindChild(Transform root, string objectName)
+    {
+        if (root == null)
+        {
+            return null;
+        }
+
+        if (root.name == objectName)
+        {
+            return root.gameObject;
+        }
+
+        for (int i = 0; i < root.childCount; i++)
+        {
+            GameObject found = FindChild(root.GetChild(i), objectName);
+            if (found != null)
+            {
+                return found;
+            }
+        }
+
+        return null;
     }
 
     private static T ReadDropdownEnum<T>(TMP_Dropdown dropdown, T fallback) where T : struct, Enum
@@ -520,6 +1083,23 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
         if (eventSystem.GetComponent<XRUIInputModule>() == null)
         {
             eventSystem.gameObject.AddComponent<XRUIInputModule>();
+        }
+    }
+
+    private static void DestroyObject(GameObject obj)
+    {
+        if (obj == null)
+        {
+            return;
+        }
+
+        if (Application.isPlaying)
+        {
+            Destroy(obj);
+        }
+        else
+        {
+            DestroyImmediate(obj);
         }
     }
 }

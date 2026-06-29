@@ -32,6 +32,7 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 6991211713554280088}
+  - {fileID: 4356478249123876063}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &2108607135266503540
@@ -44,8 +45,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5367748335cedd6429078d8675f4bce2, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   fallbackUserName: SHARE User
   fallbackRole: 0
   fallbackDeviceType: 0
@@ -58,7 +59,13 @@ MonoBehaviour:
   headVisual: {fileID: 0}
   leftHandVisual: {fileID: 0}
   rightHandVisual: {fileID: 0}
+  observerPositionCursor: {fileID: 0}
   hideLocalVisuals: 0
+  enableFingerTipSync: 1
+  enableFingerTipDebugLogs: 0
+  fingerTipVisualScale: 0.024
+  leftFingerTipColor: {r: 0.2, g: 0.9, b: 0.45, a: 0.65}
+  rightFingerTipColor: {r: 1, g: 0.6, b: 0.15, a: 0.65}
   _UserNameValue:
     _length: 0
     _data:
@@ -66,6 +73,8 @@ MonoBehaviour:
   _RoleValue: 0
   _DeviceTypeValue: 0
   _RobotTargetValue: 0
+  _DisplayPlayerNumberValue: 0
+  _ObserverDisplayNumberValue: 0
   _IsHostLikeUserValue:
     _value: 0
   _HeadPosition: {x: 0, y: 0, z: 0}
@@ -74,6 +83,36 @@ MonoBehaviour:
   _LeftHandRotation: {x: 0, y: 0, z: 0, w: 0}
   _RightHandPosition: {x: 0, y: 0, z: 0}
   _RightHandRotation: {x: 0, y: 0, z: 0, w: 0}
+  _LeftThumbTipPosition: {x: 0, y: 0, z: 0}
+  _LeftIndexTipPosition: {x: 0, y: 0, z: 0}
+  _LeftMiddleTipPosition: {x: 0, y: 0, z: 0}
+  _LeftRingTipPosition: {x: 0, y: 0, z: 0}
+  _LeftLittleTipPosition: {x: 0, y: 0, z: 0}
+  _RightThumbTipPosition: {x: 0, y: 0, z: 0}
+  _RightIndexTipPosition: {x: 0, y: 0, z: 0}
+  _RightMiddleTipPosition: {x: 0, y: 0, z: 0}
+  _RightRingTipPosition: {x: 0, y: 0, z: 0}
+  _RightLittleTipPosition: {x: 0, y: 0, z: 0}
+  _LeftThumbTipTracked:
+    _value: 0
+  _LeftIndexTipTracked:
+    _value: 0
+  _LeftMiddleTipTracked:
+    _value: 0
+  _LeftRingTipTracked:
+    _value: 0
+  _LeftLittleTipTracked:
+    _value: 0
+  _RightThumbTipTracked:
+    _value: 0
+  _RightIndexTipTracked:
+    _value: 0
+  _RightMiddleTipTracked:
+    _value: 0
+  _RightRingTipTracked:
+    _value: 0
+  _RightLittleTipTracked:
+    _value: 0
 --- !u!114 &4192688465987929703
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -84,8 +123,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: -1552182283, guid: e725a070cec140c4caffb81624c8c787, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   SortKey: 6280748
   ObjectInterest: 1
   Flags: 262145
@@ -135,17 +174,74 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 979f877ee2b5b5241b6510562afc867c, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   avatar: {fileID: 2108607135266503540}
   headAnchor: {fileID: 0}
   labelText: {fileID: 0}
   cursorRenderer: {fileID: 0}
-  verticalOffsetMeters: 0.25
+  cursorVerticalOffset: 0.25
   cursorScale: 0.035
+  textScale: 0.12
+  minVisibleDistance: 0
+  billboardToCamera: 1
   showRobotTarget: 1
   showHostLikeFlag: 1
   manipulatorColor: {r: 0.1, g: 0.75, b: 0.95, a: 1}
   scoutColor: {r: 0.2, g: 0.9, b: 0.45, a: 1}
   supervisorColor: {r: 1, g: 0.74, b: 0.2, a: 1}
   unknownColor: {r: 1, g: 1, b: 1, a: 1}
+--- !u!1 &7037739854645508057
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 4356478249123876063}
+  - component: {fileID: 8625613640302316343}
+  m_Layer: 0
+  m_Name: ObserverPositionCursor
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &4356478249123876063
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7037739854645508057}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 663567464271447739}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &8625613640302316343
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7037739854645508057}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7da927afc6832174fb5cce86dd1eeea9, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  avatar: {fileID: 2108607135266503540}
+  headAnchor: {fileID: 0}
+  labelText: {fileID: 0}
+  cursorRenderer: {fileID: 0}
+  cursorColor: {r: 1, g: 1, b: 1, a: 1}
+  cursorScale: 0.04
+  labelVerticalOffset: 0.06
+  textScale: 0.1
+  billboardToCamera: 1
+  enableDebugLogs: 0

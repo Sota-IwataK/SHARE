@@ -32,6 +32,7 @@ public static class SharePhotonSharedMRPlaySmokeTest
     private const string CursorFilterOffWorkedKey = "SharePhotonSharedMRPlaySmokeTest.CursorFilterOffWorked";
     private const string CursorFilterOnRestoredKey = "SharePhotonSharedMRPlaySmokeTest.CursorFilterOnRestored";
     private const string CursorVerifiedKey = "SharePhotonSharedMRPlaySmokeTest.CursorVerified";
+    private const string SpawnRequestedKey = "SharePhotonSharedMRPlaySmokeTest.SpawnRequested";
     private const float GrabObservationSeconds = 4f;
     private const float StatusLogIntervalSeconds = 5f;
 
@@ -53,6 +54,7 @@ public static class SharePhotonSharedMRPlaySmokeTest
     private static bool cursorFilterOffWorked;
     private static bool cursorFilterOnRestored;
     private static bool cursorVerified;
+    private static bool spawnRequested;
 
     static SharePhotonSharedMRPlaySmokeTest()
     {
@@ -94,6 +96,7 @@ public static class SharePhotonSharedMRPlaySmokeTest
         cursorFilterOffWorked = false;
         cursorFilterOnRestored = false;
         cursorVerified = false;
+        spawnRequested = false;
         SessionState.SetBool(ActiveKey, true);
         SessionState.SetBool(FinishPendingKey, false);
         SaveState();
@@ -155,10 +158,14 @@ public static class SharePhotonSharedMRPlaySmokeTest
 
         PhotonFusionSharedRoomBootstrap bootstrap = Object.FindFirstObjectByType<PhotonFusionSharedRoomBootstrap>();
         PhotonSharedMRLoginPanel loginPanel = Object.FindFirstObjectByType<PhotonSharedMRLoginPanel>();
+        PhotonSharedBottleSpawner bottleSpawner = Object.FindFirstObjectByType<PhotonSharedBottleSpawner>();
         RoleBasedInfoFilter filter = Object.FindFirstObjectByType<RoleBasedInfoFilter>();
         NetworkUserAvatar[] avatars = Object.FindObjectsOfType<NetworkUserAvatar>();
         NetworkedSharedSceneObject[] sharedObjects = Object.FindObjectsOfType<NetworkedSharedSceneObject>();
-        NetworkedSharedSceneObject bottle = FindSharedObject(sharedObjects, SharedNetworkObjectKind.Bottle);
+        NetworkedSharedSceneObject photonSharedBottle = FindPhotonSharedBottle(sharedObjects);
+        NetworkedSharedSceneObject bottle = photonSharedBottle != null
+            ? photonSharedBottle
+            : FindSharedObject(sharedObjects, SharedNetworkObjectKind.Bottle);
 #if FUSION_WEAVER && FUSION2
         NetworkRunner preStartRunner = bootstrap != null ? bootstrap.Runner : null;
         bool preStartRunnerRunning = preStartRunner != null && preStartRunner.IsRunning;
@@ -219,6 +226,16 @@ public static class SharePhotonSharedMRPlaySmokeTest
         bool remoteAvatar = avatars.Length >= 2 || activePlayers >= 2;
         HmdCursorStatus cursorStatus = CollectHmdCursorStatus();
 
+        if (runnerRunning && localAvatar && bottleSpawner != null && !spawnRequested)
+        {
+            spawnRequested = true;
+            SaveState();
+            bottleSpawner.RequestSpawnInFrontOfHmd();
+            Debug.Log("[SharePhotonSharedMRPlaySmokeTest] DYNAMIC_BOTTLE_SPAWN_REQUEST"
+                + " prefab=" + (bottleSpawner.networkBottlePrefab != null ? bottleSpawner.networkBottlePrefab.name : "MissingPrefab")
+                + " sharedBottleCountBefore=" + bottleSpawner.SharedNetworkBottleCount);
+        }
+
         if (EditorApplication.timeSinceStartup - lastStatusLogTime >= StatusLogIntervalSeconds)
         {
             lastStatusLogTime = EditorApplication.timeSinceStartup;
@@ -229,6 +246,8 @@ public static class SharePhotonSharedMRPlaySmokeTest
                 + " avatarCount=" + avatars.Length
                 + " sharedObjectCount=" + sharedObjects.Length
                 + " bottlePresent=" + (bottle != null)
+                + " photonSharedBottlePresent=" + (photonSharedBottle != null)
+                + " photonSharedBottleCount=" + (bottleSpawner != null ? bottleSpawner.SharedNetworkBottleCount : 0)
                 + " localAvatar=" + localAvatar
                 + " remoteAvatar=" + remoteAvatar
                 + " hmdCursorRemoteVisible=" + cursorStatus.RemoteVisibleCount
@@ -313,7 +332,7 @@ public static class SharePhotonSharedMRPlaySmokeTest
         bool pass = runnerRunning
             && localAvatar
             && roleSwitched
-            && bottle != null
+            && photonSharedBottle != null
             && (!requireRemote || remoteAvatar)
             && (!requireRemote || cursorVerified)
             && (!grabBottle || grabStatusLogged);
@@ -324,6 +343,7 @@ public static class SharePhotonSharedMRPlaySmokeTest
                 + sessionName
                 + " localAvatar=True roleSwitch=True"
                 + " remoteAvatar=" + remoteAvatar
+                + " photonSharedBottle=True"
                 + " hmdCursorVerified=" + cursorVerified
                 + " grabStatusLogged=" + grabStatusLogged);
             Finish("pass", relevantErrorCount == 0);
@@ -431,6 +451,7 @@ public static class SharePhotonSharedMRPlaySmokeTest
         SessionState.SetBool(CursorFilterOffWorkedKey, cursorFilterOffWorked);
         SessionState.SetBool(CursorFilterOnRestoredKey, cursorFilterOnRestored);
         SessionState.SetBool(CursorVerifiedKey, cursorVerified);
+        SessionState.SetBool(SpawnRequestedKey, spawnRequested);
     }
 
     private static void LoadState()
@@ -452,18 +473,12 @@ public static class SharePhotonSharedMRPlaySmokeTest
         cursorFilterOffWorked = SessionState.GetBool(CursorFilterOffWorkedKey, cursorFilterOffWorked);
         cursorFilterOnRestored = SessionState.GetBool(CursorFilterOnRestoredKey, cursorFilterOnRestored);
         cursorVerified = SessionState.GetBool(CursorVerifiedKey, cursorVerified);
+        spawnRequested = SessionState.GetBool(SpawnRequestedKey, spawnRequested);
     }
 
     private static PhotonSharedMRSessionSettings CreateEditorProbeSettings()
     {
-        PhotonSharedMRSessionSettings settings = PhotonSharedMRSessionSettings.CreateDefault();
-        settings.userName = requireRemote ? "EditorClient" : "EditorSmoke";
-        settings.role = requireRemote ? SharedUserRole.Supervisor : SharedUserRole.ManipulatorOperator;
-        settings.deviceType = ShareDeviceType.PCEditor;
-        settings.robotTarget = requireRemote ? SharedMRRobotTarget.Observer : SharedMRRobotTarget.Amir;
-        settings.isHostLikeUser = !requireRemote;
-        settings.Sanitize();
-        return settings;
+        return PhotonSharedMRSessionSettings.CreatePcObserverDefaults(ShareDeviceType.PCEditor);
     }
 
     private static void LogAvatarMetadata(NetworkUserAvatar[] avatars)
@@ -483,6 +498,8 @@ public static class SharePhotonSharedMRPlaySmokeTest
                 + " role=" + avatar.CurrentRole
                 + " deviceType=" + avatar.DeviceType
                 + " robotTarget=" + avatar.RobotTarget
+                + " displayPlayerNumber=" + avatar.DisplayPlayerNumber
+                + " observerDisplayNumber=" + avatar.ObserverDisplayNumber
                 + " hostLike=" + avatar.IsHostLikeUser);
         }
     }
@@ -540,8 +557,42 @@ public static class SharePhotonSharedMRPlaySmokeTest
             bool labelHasUserName = status.RemoteLabel.Contains(cursor.avatar.CurrentUserName);
             bool labelHasRole = status.RemoteLabel.Contains(cursor.avatar.CurrentRole.ToString());
             bool labelHasTarget = status.RemoteLabel.Contains(cursor.avatar.RobotTarget.ToString());
-            bool labelHasHostLike = !cursor.avatar.IsHostLikeUser || status.RemoteLabel.Contains("Host-like");
-            status.RemoteLabelHasMetadata |= labelHasUserName && labelHasRole && labelHasTarget && labelHasHostLike;
+            status.RemoteLabelHasMetadata |= labelHasUserName && labelHasRole && labelHasTarget;
+        }
+
+        ObserverPositionCursor[] observerCursors = Object.FindObjectsOfType<ObserverPositionCursor>(true);
+        status.CursorCount += observerCursors.Length;
+        for (int i = 0; i < observerCursors.Length; i++)
+        {
+            ObserverPositionCursor cursor = observerCursors[i];
+            if (cursor == null || cursor.avatar == null)
+            {
+                continue;
+            }
+
+            bool isLocal = cursor.avatar.IsLocalUser;
+            if (isLocal)
+            {
+                if (cursor.IsCurrentlyVisible)
+                {
+                    status.LocalVisibleCount++;
+                }
+
+                continue;
+            }
+
+            status.RemoteCursorCount++;
+            if (!cursor.IsCurrentlyVisible)
+            {
+                continue;
+            }
+
+            status.RemoteVisibleCount++;
+            status.RemoteLabel = cursor.CurrentLabel;
+            status.FacingDot = Mathf.Max(status.FacingDot, cursor.LastFacingDot);
+            bool labelHasUserName = status.RemoteLabel.Contains(cursor.avatar.DisplayPlayerLabel);
+            bool labelHasRole = status.RemoteLabel.Contains(cursor.avatar.CurrentRole.ToString());
+            status.RemoteLabelHasMetadata |= labelHasUserName && labelHasRole;
         }
 
         return status;
@@ -563,6 +614,19 @@ public static class SharePhotonSharedMRPlaySmokeTest
         for (int i = 0; i < sharedObjects.Length; i++)
         {
             if (sharedObjects[i] != null && sharedObjects[i].objectKind == kind)
+            {
+                return sharedObjects[i];
+            }
+        }
+
+        return null;
+    }
+
+    private static NetworkedSharedSceneObject FindPhotonSharedBottle(NetworkedSharedSceneObject[] sharedObjects)
+    {
+        for (int i = 0; i < sharedObjects.Length; i++)
+        {
+            if (sharedObjects[i] != null && sharedObjects[i].IsPhotonSharedNetworkBottle)
             {
                 return sharedObjects[i];
             }
