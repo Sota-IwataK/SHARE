@@ -42,10 +42,57 @@ public class MoveRobotController : MonoBehaviour
     [SerializeField] private UpdateYouBotTransform updateYouBotTransform;
 
     private GameObject lastGeneratedWayPoint = null;
-    
+    private int lastActionFrame = -1;
+
+    public int MoveRobotActionListCount => generatedObjects != null ? generatedObjects.Count : 0;
+    public int MoveRobotOriginActionListCount => generatedWayPointLists_Origin != null ? generatedWayPointLists_Origin.Count : 0;
+    public int MoveRobotSelectedIndex => MoveRobotActionListCount - 1;
+    public bool MoveRobotIndexValid => MoveRobotActionListCount == 0
+        || (MoveRobotSelectedIndex >= 0
+            && MoveRobotSelectedIndex < MoveRobotActionListCount
+            && MoveRobotSelectedIndex < MoveRobotOriginActionListCount);
+    public bool HasMoveRobotRequiredReferences => pathPublisher != null
+        && YoubotObject != null
+        && BBox != null
+        && WayPointObject != null
+        && lineRendererPrefab != null
+        && WayPoints != null
+        && Origin != null
+        && updateYouBotTransform != null;
+
+    private void Awake()
+    {
+        ResolveMissingReferences();
+    }
+
+    private void OnEnable()
+    {
+        ResolveMissingReferences();
+    }
+
+    public void ResolveMissingReferencesForScene()
+    {
+        ResolveMissingReferences();
+    }
 
     public void PressRobotMoveSettingButton()
     {
+        ResolveMissingReferences();
+        if (!HasMoveRobotRequiredReferences || Camera.main == null)
+        {
+            Debug.LogWarning("[MoveRobotController] MOVE_ROBOT_SETTING_BLOCKED reason=MissingReference"
+                + " pathPublisher=" + (pathPublisher != null)
+                + " YoubotObject=" + (YoubotObject != null)
+                + " BBox=" + (BBox != null)
+                + " WayPointObject=" + (WayPointObject != null)
+                + " lineRendererPrefab=" + (lineRendererPrefab != null)
+                + " WayPoints=" + (WayPoints != null)
+                + " Origin=" + (Origin != null)
+                + " updateYouBotTransform=" + (updateYouBotTransform != null)
+                + " Camera.main=" + (Camera.main != null));
+            return;
+        }
+
         isRobotMoveSetting = true;
 
 
@@ -88,20 +135,84 @@ public class MoveRobotController : MonoBehaviour
 
     public void PressRobotMoveActionButton()
     {
-        
-        isRobotMoveSetting = false;
-        if (generatedObjects[generatedObjects.Count - 1]!= null)
+        if (lastActionFrame == Time.frameCount)
         {
-           if ((generatedObjects[generatedObjects.Count - 1].transform.position - YoubotObject.transform.position).magnitude <= 1){
-               generatedObjects.RemoveAt(generatedObjects.Count - 1);
-               generatedWayPointLists_Origin.RemoveAt(generatedObjects.Count - 1);
-            }
+            return;
+        }
+
+        lastActionFrame = Time.frameCount;
+        ResolveMissingReferences();
+        isRobotMoveSetting = false;
+
+        if (!HasMoveRobotRequiredReferences)
+        {
+            Debug.LogWarning("[MoveRobotController] MOVE_ROBOT_ACTION_BLOCKED reason=MissingReference"
+                + " pathPublisher=" + (pathPublisher != null)
+                + " YoubotObject=" + (YoubotObject != null)
+                + " BBox=" + (BBox != null)
+                + " WayPointObject=" + (WayPointObject != null)
+                + " lineRendererPrefab=" + (lineRendererPrefab != null)
+                + " WayPoints=" + (WayPoints != null)
+                + " Origin=" + (Origin != null)
+                + " updateYouBotTransform=" + (updateYouBotTransform != null));
+            return;
+        }
+
+        int generatedCount = MoveRobotActionListCount;
+        int originCount = MoveRobotOriginActionListCount;
+        if (generatedCount == 0 || originCount == 0)
+        {
+            Debug.LogWarning("[MoveRobotController] MOVE_ROBOT_ACTION_BLOCKED reason=EmptyList"
+                + " generatedCount=" + generatedCount
+                + " originCount=" + originCount);
+            return;
+        }
+
+        int selectedIndex = generatedCount - 1;
+        if (selectedIndex < 0 || selectedIndex >= generatedCount || selectedIndex >= originCount)
+        {
+            Debug.LogWarning("[MoveRobotController] MOVE_ROBOT_ACTION_BLOCKED reason=InvalidIndex"
+                + " index=" + selectedIndex
+                + " count=" + generatedCount
+                + " originCount=" + originCount);
+            return;
+        }
+
+        GameObject selectedWaypoint = generatedObjects[selectedIndex];
+        if (selectedWaypoint == null || generatedWayPointLists_Origin[selectedIndex] == null)
+        {
+            Debug.LogWarning("[MoveRobotController] MOVE_ROBOT_ACTION_BLOCKED reason=InvalidIndex"
+                + " index=" + selectedIndex
+                + " count=" + generatedCount
+                + " originCount=" + originCount
+                + " generatedNull=" + (selectedWaypoint == null)
+                + " originNull=" + (generatedWayPointLists_Origin[selectedIndex] == null));
+            return;
+        }
+
+        if ((selectedWaypoint.transform.position - YoubotObject.transform.position).magnitude <= 1)
+        {
+            generatedObjects.RemoveAt(selectedIndex);
+            generatedWayPointLists_Origin.RemoveAt(selectedIndex);
         }
 
         //GenerateObject();
         pathPublisher.WayPointObjectList = generatedWayPointLists_Origin;
         pathPublisher.PublishStatus = true;
         updateYouBotTransform.isUpdate = true;
+    }
+
+    private void ResolveMissingReferences()
+    {
+        if (pathPublisher == null)
+        {
+            pathPublisher = FindObjectOfType<PathPublisher>(true);
+        }
+
+        if (updateYouBotTransform == null)
+        {
+            updateYouBotTransform = FindObjectOfType<UpdateYouBotTransform>(true);
+        }
     }
 
     private void Update()

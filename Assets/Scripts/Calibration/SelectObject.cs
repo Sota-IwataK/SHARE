@@ -1,5 +1,6 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
+using System;
 using MixedReality.Toolkit;
 using MixedReality.Toolkit.Input;
 using MixedReality.Toolkit.SpatialManipulation;
@@ -331,6 +332,10 @@ public class SelectObject : MonoBehaviour
     }
     public void CalibrationButton()
     {
+        PhotonSharedMRCalibrationGuard.BeginCalibration("SelectObject.CalibrationButton");
+        PhotonSharedMRCalibrationGuard.LogCalibrationState("PHOTON_CALIBRATION_BEFORE", "SelectObject.CalibrationButton");
+        try
+        {
         if (useAbsoluteScaledEeCalibration)
         {
             StartAbsoluteScaledEeCalibration();
@@ -408,6 +413,21 @@ public class SelectObject : MonoBehaviour
                 }
             }
         }
+        }
+        catch (Exception ex)
+        {
+            PhotonSharedMRCalibrationGuard.LogCalibrationException("SelectObject.CalibrationButton", ex);
+            throw;
+        }
+        finally
+        {
+            if (!CalibrationMode && !absoluteCalibrationActive)
+            {
+                PhotonSharedMRCalibrationGuard.EndCalibration("SelectObject.CalibrationButtonNotStarted");
+            }
+
+            PhotonSharedMRCalibrationGuard.LogCalibrationState("PHOTON_CALIBRATION_AFTER", "SelectObject.CalibrationButton");
+        }
     }
 
     public void MarkCalibrationComplete()
@@ -432,6 +452,8 @@ public class SelectObject : MonoBehaviour
         SetSendZoneActive(false);
         Debug.Log("[SelectObject] Four-point calibration complete. SendZone sphere enabled.");
         ShowSendZoneSphere();
+        PhotonSharedMRCalibrationGuard.EndCalibration("SelectObject.MarkCalibrationComplete");
+        PhotonSharedMRCalibrationGuard.LogCalibrationState("PHOTON_CALIBRATION_AFTER", "SelectObject.MarkCalibrationComplete");
     }
 
     public void PickModeButton()
@@ -591,6 +613,8 @@ public class SelectObject : MonoBehaviour
         absoluteCalibrationSpherePlaced = false;
         SetAbsoluteCalibrationVisualsVisible(false);
         Debug.Log("[AbsoluteCalibration] Set Center accepted; calibration UI hidden.");
+        PhotonSharedMRCalibrationGuard.EndCalibration("SelectObject.HideAbsoluteCalibrationUiAfterSetCenter");
+        PhotonSharedMRCalibrationGuard.LogCalibrationState("PHOTON_CALIBRATION_AFTER", "SelectObject.HideAbsoluteCalibrationUiAfterSetCenter");
     }
 
     private bool TryPublishAbsoluteCalibrationCenterReset()

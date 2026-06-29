@@ -56,6 +56,14 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
     public Transform buttonCollectionRoot;
     public Canvas spawnButtonCanvas;
 
+    public UnityEngine.Pose LatestDetectedBottlePose { get; private set; } =
+        new UnityEngine.Pose(Vector3.zero, Quaternion.identity);
+    public float LatestDetectedBottleTimestamp { get; private set; } = -1f;
+    public bool HasValidDetectedBottle { get; private set; }
+    public float LatestDetectionConfidence { get; private set; }
+    public string LatestDetectionSourceFrame { get; private set; } = "none";
+    public string LatestDetectionCoordinateMode => OpticalFrameCoordinateMode;
+
     private GameObject bottleInstance;
     private GameObject manualBottleInstance;
     private readonly List<GameObject> bottleInstances = new List<GameObject>();
@@ -1009,6 +1017,8 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
         string frameId = GetFrameId(message.header != null ? message.header.frame_id : null);
 
         targetUnityPosition = ConvertRosToUnity(rosPosition) * positionScale;
+        Quaternion unityRotation = ConvertRosToUnityRotation(message.pose.orientation);
+        MarkLatestDetection(targetUnityPosition, unityRotation, frameId, 1f);
         SetBottleTarget(0, targetUnityPosition);
         EnsureBottleInstance(0, false);
         ShowBottleInstance(0, true);
@@ -1042,6 +1052,7 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
         Debug.Log("[DetectedBottlePoseSubscriber] PoseArray received count=" + receivedCount);
 
         latestDetectedUnityPositions.Clear();
+        bool recordedPrimaryDetection = false;
         for (int i = 0; i < receivedCount; i++)
         {
             PoseMsg pose = message.poses[i];
@@ -1056,11 +1067,27 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
                 (float)pose.position.z);
             Vector3 unityPosition = ConvertRosToUnity(rosPosition) * positionScale;
             latestDetectedUnityPositions.Add(unityPosition);
+
+            if (!recordedPrimaryDetection)
+            {
+                MarkLatestDetection(
+                    unityPosition,
+                    ConvertRosToUnityRotation(pose.orientation),
+                    frameId,
+                    1f);
+                recordedPrimaryDetection = true;
+            }
         }
 
         Debug.Log("[DetectedBottlePoseSubscriber] Latest PoseArray cached count="
             + latestDetectedUnityPositions.Count);
         latestDetectedCount = latestDetectedUnityPositions.Count;
+        if (!recordedPrimaryDetection)
+        {
+            HasValidDetectedBottle = false;
+            LatestDetectionConfidence = 0f;
+        }
+
         Debug.Log("[DetectedBottlePoseSubscriber] PoseArray frame_id=" + frameId
             + " coordinateMode=" + OpticalFrameCoordinateMode);
 
@@ -1115,6 +1142,32 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
             targetUnityPosition = unityPosition;
             bottleInstance = bottleInstances[0];
         }
+    }
+
+    public bool TryGetLatestDetectedBottlePose(out UnityEngine.Pose pose)
+    {
+        pose = LatestDetectedBottlePose;
+        return HasValidDetectedBottle;
+    }
+
+    private void MarkLatestDetection(
+        Vector3 unityPosition,
+        Quaternion unityRotation,
+        string frameId,
+        float confidence)
+    {
+        if (!IsValidRotation(unityRotation))
+        {
+            unityRotation = bottlePrefab != null
+                ? bottlePrefab.transform.rotation
+                : Quaternion.identity;
+        }
+
+        LatestDetectedBottlePose = new UnityEngine.Pose(unityPosition, unityRotation);
+        LatestDetectedBottleTimestamp = Time.realtimeSinceStartup;
+        HasValidDetectedBottle = true;
+        LatestDetectionConfidence = Mathf.Clamp01(confidence);
+        LatestDetectionSourceFrame = GetFrameId(frameId);
     }
 
     private void EnsureBottleListCapacity(int index)
@@ -1925,6 +1978,51 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
             rosPosition.x,
             -rosPosition.y,
             rosPosition.z);
+    }
+
+    private static Quaternion ConvertRosToUnityRotation(QuaternionMsg rosRotation)
+    {
+        if (rosRotation == null)
+        {
+            return Quaternion.identity;
+        }
+
+        Quaternion unityRotation = new Quaternion(
+            -(float)rosRotation.x,
+            (float)rosRotation.y,
+            -(float)rosRotation.z,
+            (float)rosRotation.w);
+
+        return IsValidRotation(unityRotation) ? Normalize(unityRotation) : Quaternion.identity;
+    }
+
+    private static Quaternion Normalize(Quaternion rotation)
+    {
+        float magnitude = Mathf.Sqrt(
+            rotation.x * rotation.x
+            + rotation.y * rotation.y
+            + rotation.z * rotation.z
+            + rotation.w * rotation.w);
+
+        if (magnitude <= 0.000001f)
+        {
+            return Quaternion.identity;
+        }
+
+        float inverse = 1f / magnitude;
+        return new Quaternion(
+            rotation.x * inverse,
+            rotation.y * inverse,
+            rotation.z * inverse,
+            rotation.w * inverse);
+    }
+
+    private static bool IsValidRotation(Quaternion rotation)
+    {
+        return Mathf.Abs(rotation.x) > 0.000001f
+            || Mathf.Abs(rotation.y) > 0.000001f
+            || Mathf.Abs(rotation.z) > 0.000001f
+            || Mathf.Abs(rotation.w) > 0.000001f;
     }
 
     private static string GetFrameId(string frameId)
