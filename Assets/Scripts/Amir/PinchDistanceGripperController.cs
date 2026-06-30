@@ -203,9 +203,9 @@ public class PinchDistanceGripperController : MonoBehaviour
             if (!loggedMissingTransforms)
             {
                 loggedMissingTransforms = true;
-                Debug.LogWarning(
-                    "[PinchDistanceGripperController] Thumb Reference Transform or Index Reference Transform is not assigned for " +
-                    GetSelectedHandName() + " hand; gripper command will not be published.");
+                // // Debug.LogWarning(
+                //     "[PinchDistanceGripperController] Thumb Reference Transform or Index Reference Transform is not assigned for " +
+                //     GetSelectedHandName() + " hand; gripper command will not be published.");
             }
 
             return false;
@@ -228,7 +228,7 @@ public class PinchDistanceGripperController : MonoBehaviour
             if (!loggedInvalidTopic)
             {
                 loggedInvalidTopic = true;
-                Debug.LogWarning("[PinchDistanceGripperController] topicName is empty; gripper command will not be published.");
+                // Debug.LogWarning("[PinchDistanceGripperController] topicName is empty; gripper command will not be published.");
             }
 
             return;
@@ -246,10 +246,10 @@ public class PinchDistanceGripperController : MonoBehaviour
         publisherRegistered = true;
         publisherReadyRealtime = Time.realtimeSinceStartup + PublisherRegistrationSettleSeconds;
         loggedPublishSkippedBeforeRegistration = false;
-        Debug.Log(
-            "[PinchDistanceGripperController] RegisterPublisher " + topicName +
-            " messageType=" + MessageRegistry.GetRosMessageName<RosString>() +
-            " readyAfter=" + PublisherRegistrationSettleSeconds.ToString("F2") + "s");
+        // Debug.Log(
+        //     "[PinchDistanceGripperController] RegisterPublisher " + topicName +
+        //     " messageType=" + MessageRegistry.GetRosMessageName<RosString>() +
+        //     " readyAfter=" + PublisherRegistrationSettleSeconds.ToString("F2") + "s");
     }
 
     private bool TryPublishState(GripperState nextState, string command, float distance)
@@ -275,16 +275,16 @@ public class PinchDistanceGripperController : MonoBehaviour
         currentState = nextState;
         nextPublishAllowedTime = Time.time + publishCooldownSec;
 
-        Debug.Log(
-            "[PinchDistanceGripperController] Published " + topicName + " " + command +
-            " distance=" + FormatDistance(distance));
+        // Debug.Log(
+        //     "[PinchDistanceGripperController] Published " + topicName + " " + command +
+        //     " distance=" + FormatDistance(distance));
 
-        Debug.Log(
-            "[PinchDistanceGripperController] state change " + previousState + " -> " + nextState +
-            " command=" + command +
-            " distance=" + FormatDistance(distance) +
-            " hand=" + GetSelectedHandName() +
-            " topic=" + topicName);
+        // Debug.Log(
+        //     "[PinchDistanceGripperController] state change " + previousState + " -> " + nextState +
+        //     " command=" + command +
+        //     " distance=" + FormatDistance(distance) +
+        //     " hand=" + GetSelectedHandName() +
+        //     " topic=" + topicName);
 
         return true;
     }
@@ -321,7 +321,7 @@ public class PinchDistanceGripperController : MonoBehaviour
         }
 
         loggedPublishSkippedBeforeRegistration = true;
-        Debug.LogWarning("[PinchDistanceGripperController] Publish skipped for " + topicName + ": " + reason);
+        // Debug.LogWarning("[PinchDistanceGripperController] Publish skipped for " + topicName + ": " + reason);
     }
 
     private void LogDebugStatus(bool hasDistance, float distance)
@@ -332,12 +332,12 @@ public class PinchDistanceGripperController : MonoBehaviour
         }
 
         nextDistanceLogTime = Time.time + distanceLogIntervalSec;
-        Debug.Log(
-            "[PinchDistanceGripperController] thumbReference=" + GetTransformName(thumbReferenceTransform) +
-            " indexReference=" + GetTransformName(indexReferenceTransform) +
-            " distance=" + (hasDistance ? FormatDistance(distance) : "unavailable") +
-            " state=" + currentState +
-            " hand=" + GetSelectedHandName());
+        // Debug.Log(
+        //     "[PinchDistanceGripperController] thumbReference=" + GetTransformName(thumbReferenceTransform) +
+        //     " indexReference=" + GetTransformName(indexReferenceTransform) +
+        //     " distance=" + (hasDistance ? FormatDistance(distance) : "unavailable") +
+        //     " state=" + currentState +
+        //     " hand=" + GetSelectedHandName());
     }
 
     private void ResolveExternalReferenceTransforms()

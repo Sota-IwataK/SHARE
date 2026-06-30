@@ -374,10 +374,10 @@ public class RightHandMecanumControl : MonoBehaviour
         publisherRegistered = true;
         publisherReadyRealtime = Time.realtimeSinceStartup + PublisherRegistrationSettleSeconds;
         loggedPublishSkippedBeforeRegistration = false;
-        Debug.Log(
-            "[RightHandMecanumControl] RegisterPublisher " + topicName +
-            " messageType=" + MessageRegistry.GetRosMessageName<Float32MultiArrayMsg>() +
-            " readyAfter=" + PublisherRegistrationSettleSeconds.ToString("F2") + "s");
+        // Debug.Log(
+        //     "[RightHandMecanumControl] RegisterPublisher " + topicName +
+        //     " messageType=" + MessageRegistry.GetRosMessageName<Float32MultiArrayMsg>() +
+        //     " readyAfter=" + PublisherRegistrationSettleSeconds.ToString("F2") + "s");
     }
 
     private bool CanPublish()
@@ -412,7 +412,7 @@ public class RightHandMecanumControl : MonoBehaviour
         }
 
         loggedPublishSkippedBeforeRegistration = true;
-        Debug.LogWarning("[RightHandMecanumControl] Publish skipped for " + topicName + ": " + reason);
+        // Debug.LogWarning("[RightHandMecanumControl] Publish skipped for " + topicName + ": " + reason);
     }
 
     private void EnsurePopup()
@@ -553,13 +553,13 @@ public class RightHandMecanumControl : MonoBehaviour
             return;
         }
 
-        Debug.Log(
-            "[RightHandMecanumControl] state=" + state +
-            " holdTime=" + lastHoldTime.ToString("F2") +
-            " active=" + lastActive +
-            " delta_x=" + lastDeltaX.ToString("F3") +
-            " delta_z=" + lastDeltaZ.ToString("F3") +
-            " roll_delta=" + lastRollDelta.ToString("F3"));
+        // Debug.Log(
+        //     "[RightHandMecanumControl] state=" + state +
+        //     " holdTime=" + lastHoldTime.ToString("F2") +
+        //     " active=" + lastActive +
+        //     " delta_x=" + lastDeltaX.ToString("F3") +
+        //     " delta_z=" + lastDeltaZ.ToString("F3") +
+        //     " roll_delta=" + lastRollDelta.ToString("F3"));
         nextDebugLogTime = Time.time + 1f;
     }
 }
