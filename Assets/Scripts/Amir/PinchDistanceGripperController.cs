@@ -9,6 +9,7 @@ using RosString = RosMessageTypes.Std.StringMsg;
 public class PinchDistanceGripperController : MonoBehaviour
 {
     private const float PublisherRegistrationSettleSeconds = 0.5f;
+    private const string DefaultTopicName = "/grasp_command";
 
     private enum GripperState
     {
@@ -31,7 +32,7 @@ public class PinchDistanceGripperController : MonoBehaviour
     [SerializeField] private string externalPinchBoolMemberName = "airtap";
 
     [Header("ROS")]
-    [SerializeField] private string topicName = "/amir/gripper_cmd";
+    [SerializeField] private string topicName = DefaultTopicName;
     [SerializeField] private int queueSize = 10;
 
     [Header("Control")]
@@ -174,7 +175,7 @@ public class PinchDistanceGripperController : MonoBehaviour
     {
         if (string.IsNullOrWhiteSpace(topicName))
         {
-            topicName = "/amir/gripper_cmd";
+            topicName = DefaultTopicName;
         }
 
         queueSize = Mathf.Max(1, queueSize);

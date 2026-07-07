@@ -54,9 +54,9 @@ public class RightHandMecanumControl : MonoBehaviour
     [SerializeField] private Vector2 popupSize = new Vector2(620f, 170f);
     [SerializeField] private float popupCanvasScale = 0.0018f;
 
-    private const string MoveReadyText = "移動開始";
-    private const string ControlText = "右手でローバ操作中";
-    private const string StopText = "停止";
+    private const string MoveReadyText = "Move Ready";
+    private const string ControlText = "Right Hand Rover Control";
+    private const string StopText = "Stop";
 
     private MecanumState state = MecanumState.IDLE;
     private ROSConnection ros;
@@ -80,6 +80,60 @@ public class RightHandMecanumControl : MonoBehaviour
     private float lastDeltaX;
     private float lastDeltaZ;
     private float lastRollDelta;
+    private bool lastHandTracked;
+    private bool lastCanPublish;
+    private float lastPublishTime = -1f;
+
+    public bool IsHandTracked => lastHandTracked;
+    public bool IsGestureHolding => state == MecanumState.RIGHT_HAND_HOLDING;
+    public bool IsDriveActive => state == MecanumState.MECANUM_CONTROL;
+    public bool IsPublishing => IsDriveActive
+        && lastCanPublish
+        && lastPublishTime >= 0f
+        && Time.time - lastPublishTime <= Mathf.Max(0.25f, 1f / Mathf.Max(1, publishHz) * 2f);
+    public float GestureHoldProgress01 => holdSeconds > 0f ? Mathf.Clamp01(lastHoldTime / holdSeconds) : 1f;
+    public float ForwardInput => lastDeltaZ;
+    public float StrafeInput => lastDeltaX;
+    public float RotationInput => lastRollDelta;
+    public string PublishTopic => topicName;
+    public float LastPublishTime => lastPublishTime;
+    public string CurrentStateText
+    {
+        get
+        {
+            if (!Application.isPlaying)
+            {
+                return "INITIALIZING";
+            }
+
+            if (!IsHandTracked)
+            {
+                return "HAND NOT DETECTED";
+            }
+
+            if (!lastCanPublish && (ros == null || !publisherRegistered || ros.HasConnectionError))
+            {
+                return "NOT READY";
+            }
+
+            if (IsPublishing)
+            {
+                return "PUBLISHING";
+            }
+
+            if (IsDriveActive)
+            {
+                return "ACTIVE";
+            }
+
+            if (IsGestureHolding)
+            {
+                return "HOLD TO ACTIVATE";
+            }
+
+            return "READY";
+        }
+    }
 
     private void Awake()
     {
@@ -108,6 +162,7 @@ public class RightHandMecanumControl : MonoBehaviour
     private void Update()
     {
         bool hasPose = TryGetRightHandPose(out Vector3 handPosition, out Quaternion handRotation);
+        lastHandTracked = hasPose;
         bool handClosed = hasPose && IsRightHandClosed();
         lastHoldTime = state == MecanumState.RIGHT_HAND_HOLDING ? Time.time - holdStartTime : 0f;
 
@@ -329,8 +384,17 @@ public class RightHandMecanumControl : MonoBehaviour
             return;
         }
 
+        float clampedDeltaX = Mathf.Clamp(deltaX, -maxDeltaX, maxDeltaX);
+        float clampedDeltaZ = Mathf.Clamp(deltaZ, -maxDeltaZ, maxDeltaZ);
+        float clampedRollDelta = Mathf.Clamp(rollDelta, -maxRollDeltaRad, maxRollDeltaRad);
+        lastActive = active;
+        lastDeltaX = clampedDeltaX;
+        lastDeltaZ = clampedDeltaZ;
+        lastRollDelta = clampedRollDelta;
+
         EnsurePublisher();
-        if (!CanPublish())
+        lastCanPublish = CanPublish();
+        if (!lastCanPublish)
         {
             return;
         }
@@ -340,19 +404,15 @@ public class RightHandMecanumControl : MonoBehaviour
             data = new[]
             {
                 active ? 1f : 0f,
-                Mathf.Clamp(deltaX, -maxDeltaX, maxDeltaX),
-                Mathf.Clamp(deltaZ, -maxDeltaZ, maxDeltaZ),
-                Mathf.Clamp(rollDelta, -maxRollDeltaRad, maxRollDeltaRad),
+                clampedDeltaX,
+                clampedDeltaZ,
+                clampedRollDelta,
                 Time.time
             }
         };
         ros.Publish(topicName, message);
         nextPublishTime = Time.time + publishInterval;
-
-        lastActive = active;
-        lastDeltaX = message.data[1];
-        lastDeltaZ = message.data[2];
-        lastRollDelta = message.data[3];
+        lastPublishTime = Time.time;
     }
 
     private void EnsurePublisher()
@@ -401,6 +461,7 @@ public class RightHandMecanumControl : MonoBehaviour
         }
 
         loggedPublishSkippedBeforeRegistration = false;
+        lastCanPublish = true;
         return true;
     }
 

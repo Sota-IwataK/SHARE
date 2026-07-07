@@ -14,6 +14,12 @@ public enum PhotonSharedBottleDetectionVisualState
     Lost = 3
 }
 
+public enum SharedBottleOrigin
+{
+    Manual = 0,
+    RosDetected = 1
+}
+
 [DisallowMultipleComponent]
 public class NetworkedSharedSceneObject :
 #if FUSION_WEAVER && FUSION2
@@ -26,6 +32,8 @@ public class NetworkedSharedSceneObject :
     public SharedNetworkObjectKind objectKind = SharedNetworkObjectKind.Bottle;
     public bool allowStateAuthorityGrab = true;
     public bool isPhotonSharedNetworkBottle;
+    public SharedBottleOrigin bottleOrigin = SharedBottleOrigin.Manual;
+    public int detectedBottleTrackId = -1;
 
     [Header("PC Editor Test Grab")]
     public bool allowMouseEditorGrab = true;
@@ -91,11 +99,15 @@ public class NetworkedSharedSceneObject :
     [Networked] public PlayerRef SpawnedByPlayer { get; set; }
     [Networked] public float SpawnedAtRunnerTime { get; set; }
     [Networked] public int NetworkDetectionVisualState { get; set; }
+    [Networked] public int DetectedBottleTrackId { get; set; }
+    [Networked] public int NetworkBottleOrigin { get; set; }
 
     public string DebugSpawnedByPlayer => SpawnedByPlayer.ToString();
     public string DebugSpawnedAtRunnerTime => SpawnedAtRunnerTime.ToString("F3");
     public bool IsGrabbedByAnyUser => IsGrabbed;
     public bool HasLocalStateAuthority => HasStateAuthority;
+    public int SharedDetectedBottleTrackId => DetectedBottleTrackId;
+    public SharedBottleOrigin SharedOrigin => ClampBottleOrigin(NetworkBottleOrigin);
     public PhotonSharedBottleDetectionVisualState DetectionVisualState
         => ClampDetectionVisualState(NetworkDetectionVisualState);
 
@@ -290,6 +302,19 @@ public class NetworkedSharedSceneObject :
 
         SpawnedByPlayer = spawnedBy;
         SpawnedAtRunnerTime = spawnedAtRunnerTime;
+    }
+
+    public void SetDetectedBottleMetadata(int trackId, SharedBottleOrigin origin)
+    {
+        detectedBottleTrackId = trackId;
+        bottleOrigin = origin;
+        if (!HasStateAuthority)
+        {
+            return;
+        }
+
+        DetectedBottleTrackId = trackId;
+        NetworkBottleOrigin = (int)origin;
     }
 
     public bool TryRequestSharedStateAuthority(string reason)
@@ -808,6 +833,8 @@ public class NetworkedSharedSceneObject :
     public string DebugSpawnedAtRunnerTime => "Unavailable";
     public bool IsGrabbedByAnyUser => localDragActive;
     public bool HasLocalStateAuthority => false;
+    public int SharedDetectedBottleTrackId => detectedBottleTrackId;
+    public SharedBottleOrigin SharedOrigin => bottleOrigin;
     private PhotonSharedBottleDetectionVisualState localDetectionVisualState = PhotonSharedBottleDetectionVisualState.None;
     public PhotonSharedBottleDetectionVisualState DetectionVisualState => localDetectionVisualState;
 
@@ -826,6 +853,12 @@ public class NetworkedSharedSceneObject :
     {
         localDetectionVisualState = state;
         return true;
+    }
+
+    public void SetDetectedBottleMetadata(int trackId, SharedBottleOrigin origin)
+    {
+        detectedBottleTrackId = trackId;
+        bottleOrigin = origin;
     }
 
     public bool TryBeginLocalGrab()
@@ -1611,6 +1644,16 @@ public class NetworkedSharedSceneObject :
         }
 
         return (PhotonSharedBottleDetectionVisualState)state;
+    }
+
+    private static SharedBottleOrigin ClampBottleOrigin(int origin)
+    {
+        if (!System.Enum.IsDefined(typeof(SharedBottleOrigin), origin))
+        {
+            return SharedBottleOrigin.Manual;
+        }
+
+        return (SharedBottleOrigin)origin;
     }
 
     private static string FormatVector(Vector3 value)

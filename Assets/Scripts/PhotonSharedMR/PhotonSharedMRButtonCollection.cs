@@ -9,6 +9,7 @@ public class PhotonSharedMRButtonCollection : MonoBehaviour
 {
     [Header("Scene References")]
     public PhotonSharedMRLoginPanel loginPanel;
+    public PhotonSharedMRLoginPanelVisibilityController loginPanelVisibilityController;
     public PhotonFusionSharedRoomBootstrap bootstrap;
     public PhotonSharedBottleSpawner bottleSpawner;
     public PhotonSharedMRDebugPanel debugPanel;
@@ -247,6 +248,13 @@ public class PhotonSharedMRButtonCollection : MonoBehaviour
         if (loginPanel == null)
         {
             loginPanel = FindObjectOfType<PhotonSharedMRLoginPanel>(true);
+        }
+
+        if (loginPanelVisibilityController == null)
+        {
+            loginPanelVisibilityController = loginPanel != null && loginPanel.visibilityController != null
+                ? loginPanel.visibilityController
+                : FindObjectOfType<PhotonSharedMRLoginPanelVisibilityController>(true);
         }
 
         if (bootstrap == null)

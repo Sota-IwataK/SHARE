@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Text;
@@ -12,11 +13,30 @@ using UnityEngine.Events;
 using UnityEngine.UI;
 using UnityEngine.XR.Interaction.Toolkit.UI;
 
+public class DetectedBottleTrack
+{
+    public int TrackId;
+    public Vector3 UnityPosition;
+    public Quaternion UnityRotation = Quaternion.identity;
+    public float LastSeenUnscaledTime;
+    public bool HasBeenGrabbed;
+    public bool IsCurrentlyGrabbed;
+#if FUSION_WEAVER && FUSION2
+    public Fusion.NetworkObject PhotonBottleObject;
+#else
+    public object PhotonBottleObject;
+#endif
+    public NetworkedSharedSceneObject SharedSceneObject;
+    public bool TimedOutLogged;
+    public bool UpdateLogged;
+    public Vector3 LastLoggedPosition;
+}
+
 public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
 {
     private const string DefaultTopic = "/detected_bottle_pose";
     private const string DefaultPoseArrayTopic = "/detected_bottle_poses";
-    private const string SpawnBottleButtonName = "Spawn Bottle";
+    private const string SpawnBottleButtonName = "Scan Bottles";
     private const string RuntimeObjectName = "DetectedBottlePoseRuntime";
     private const string ManualBottleName = "Manual Bottle";
     private const string OpticalFrameCoordinateMode = "camera_color_optical_frame optical: Unity=(ros.x, -ros.y, ros.z)";
@@ -46,6 +66,27 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
     public bool createRuntimeButton = false;
     public bool showDebugStatusText = true;
     public bool forceSpawnInFrontOfHmd = false;
+    public bool usePhotonSharedBottleWhenConnected = true;
+    public PhotonSharedBottleSpawner photonBottleSpawner;
+    public bool disableLocalBottleWhenPhotonConnected = true;
+    [SerializeField, Min(0.01f)]
+    private float trackAssociationDistanceM = 0.10f;
+    [SerializeField, Min(0.1f)]
+    private float trackLostTimeoutSec = 2.0f;
+    [SerializeField, Min(0.01f)]
+    private float rosPosePositionThresholdM = 0.02f;
+    [SerializeField, Min(0.1f)]
+    private float rosPoseUpdateRateHz = 10.0f;
+    [SerializeField]
+    private bool destroyUnclaimedTrackAfterTimeout = false;
+    [SerializeField]
+    private bool scanOnceOnStartup = true;
+    [SerializeField, Min(0.1f)]
+    private float startupScanTimeoutSec = 2.0f;
+    [SerializeField, Min(0.1f)]
+    private float manualScanWindowSec = 1.0f;
+    [SerializeField]
+    private bool removeUnseenUngrabbedRosBottlesOnScan = false;
     public float forceSpawnDistance = 0.5f;
     public float debugStatusDistance = 0.55f;
     public float debugStatusVerticalOffset = -0.08f;
@@ -60,18 +101,34 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
         new UnityEngine.Pose(Vector3.zero, Quaternion.identity);
     public float LatestDetectedBottleTimestamp { get; private set; } = -1f;
     public bool HasValidDetectedBottle { get; private set; }
+    public bool HasLatestValidBottlePose => HasValidDetectedBottle;
+    public Vector3 LatestBottleUnityPosition => LatestDetectedBottlePose.position;
+    public Quaternion LatestBottleUnityRotation => LatestDetectedBottlePose.rotation;
+    public float LatestBottlePoseTime => LatestDetectedBottleTimestamp;
     public float LatestDetectionConfidence { get; private set; }
     public string LatestDetectionSourceFrame { get; private set; } = "none";
     public string LatestDetectionCoordinateMode => OpticalFrameCoordinateMode;
+    public bool IsBottleScanInProgress { get; private set; }
+    public bool HasCompletedInitialBottleScan { get; private set; }
+    public string BottleScanStatus { get; private set; } = "Idle";
+    public int DetectedBottleTrackCount => bottleTracks.Count;
 
     private GameObject bottleInstance;
     private GameObject manualBottleInstance;
     private readonly List<GameObject> bottleInstances = new List<GameObject>();
     private readonly List<GameObject> createdBottleInstances = new List<GameObject>();
     private readonly List<Vector3> latestDetectedUnityPositions = new List<Vector3>();
+    private readonly List<DetectedBottleTrack> bottleTracks = new List<DetectedBottleTrack>();
+    private readonly HashSet<int> currentFrameAssignedTrackIds = new HashSet<int>();
+    private readonly Dictionary<int, float> lastPhotonTrackUpdateTime = new Dictionary<int, float>();
+    private readonly Dictionary<int, Vector3> lastPhotonTrackUpdatePosition = new Dictionary<int, Vector3>();
+    private readonly Dictionary<int, Quaternion> lastPhotonTrackUpdateRotation = new Dictionary<int, Quaternion>();
+    private readonly List<UnityEngine.Pose> latestBottleSnapshot = new List<UnityEngine.Pose>();
+    private readonly List<UnityEngine.Pose> activeScanSnapshot = new List<UnityEngine.Pose>();
     private readonly List<Vector3> bottleTargetPositions = new List<Vector3>();
     private readonly List<bool> bottleHasTargetPositions = new List<bool>();
     private Vector3 targetUnityPosition;
+    private int nextBottleTrackId;
     private bool loggedMissingPrefab;
     private Button spawnBottleButton;
     private GameObject buttonCollectionSpawnButtonObject;
@@ -94,6 +151,16 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
     private int detectedBottleCreatedCount;
     private string latestPoseArrayFrameId = "none";
     private string latestCreatedBottleState = "none";
+    private bool localDetectedBottleHiddenForPhoton;
+    private bool latestRosBottlePoseCacheLogged;
+    private Vector3 lastLoggedLatestRosBottlePosition;
+    private Quaternion lastLoggedLatestRosBottleRotation = Quaternion.identity;
+    private Coroutine bottleScanCoroutine;
+    private string activeScanSource = "None";
+    private bool hasLatestBottleSnapshot;
+    private float latestBottleSnapshotTime = -1f;
+    private string latestBottleSnapshotFrameId = "none";
+    private bool initialPhotonCommitCompleted;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void EnsureRuntimeSubscriberExists()
@@ -155,6 +222,12 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
         debugStatusFontSize = Mathf.Max(0.001f, debugStatusFontSize);
         debugStatusWidth = Mathf.Max(0.1f, debugStatusWidth);
         debugStatusHeight = Mathf.Max(0.1f, debugStatusHeight);
+        trackAssociationDistanceM = Mathf.Max(0.01f, trackAssociationDistanceM);
+        trackLostTimeoutSec = Mathf.Max(0.1f, trackLostTimeoutSec);
+        rosPosePositionThresholdM = Mathf.Max(0.01f, rosPosePositionThresholdM);
+        rosPoseUpdateRateHz = Mathf.Max(0.1f, rosPoseUpdateRateHz);
+        startupScanTimeoutSec = Mathf.Max(0.1f, startupScanTimeoutSec);
+        manualScanWindowSec = Mathf.Max(0.1f, manualScanWindowSec);
     }
 
     protected override void Start()
@@ -164,6 +237,10 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
         EnsureDebugStatusText();
         EnsureButtonCollectionSpawnButton();
         EnsureManualSpawnButton();
+        if (scanOnceOnStartup)
+        {
+            StartBottleScan("Initial", startupScanTimeoutSec, true);
+        }
     }
 
     protected override void OnEnable()
@@ -177,6 +254,15 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
     {
         UpdateRuntimeSpawnCanvasPose();
         UpdateDebugStatusText();
+        RefreshTrackGrabStates();
+        TryCommitInitialSnapshotAfterPhotonJoin();
+
+        if (ShouldSuppressLocalBottleDisplay())
+        {
+            HideLocalDetectedBottleInstances();
+            UpdateCandidateBottleLabel();
+            return;
+        }
 
         for (int i = 0; i < bottleHasTargetPositions.Count; i++)
         {
@@ -345,12 +431,291 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
         return float.IsInfinity(distance) ? "n/a" : distance.ToString("F3");
     }
 
+    private void StartBottleScan(string source, float timeoutSec, bool allowImmediateCachedSnapshot)
+    {
+        if (!Application.isPlaying)
+        {
+            return;
+        }
+
+        if (bottleScanCoroutine != null)
+        {
+            StopCoroutine(bottleScanCoroutine);
+        }
+
+        bottleScanCoroutine = StartCoroutine(BottleScanRoutine(source, timeoutSec, allowImmediateCachedSnapshot));
+    }
+
+    private IEnumerator BottleScanRoutine(string source, float timeoutSec, bool allowImmediateCachedSnapshot)
+    {
+        string resolvedSource = string.IsNullOrWhiteSpace(source) ? "Manual" : source;
+        float resolvedTimeout = Mathf.Max(0.1f, timeoutSec);
+        activeScanSource = resolvedSource;
+        activeScanSnapshot.Clear();
+        IsBottleScanInProgress = true;
+        BottleScanStatus = "Scanning";
+        ForceDebugStatusRefresh();
+
+        if (string.Equals(resolvedSource, "Initial", System.StringComparison.Ordinal))
+        {
+            Debug.Log("[DetectedBottlePoseSubscriber] Initial bottle scan started:"
+                + "\ntimeoutSec=" + resolvedTimeout.ToString("F2"));
+        }
+        else
+        {
+            Debug.Log("[DetectedBottlePoseSubscriber] Manual bottle scan started:"
+                + "\nwindowSec=" + resolvedTimeout.ToString("F2"));
+        }
+
+        if (allowImmediateCachedSnapshot && hasLatestBottleSnapshot && latestBottleSnapshot.Count > 0)
+        {
+            CopySnapshot(latestBottleSnapshot, activeScanSnapshot);
+            CommitActiveBottleSnapshot(resolvedSource);
+            yield break;
+        }
+
+        float endTime = Time.unscaledTime + resolvedTimeout;
+        while (IsBottleScanInProgress && Time.unscaledTime < endTime)
+        {
+            if (activeScanSnapshot.Count > 0)
+            {
+                CommitActiveBottleSnapshot(resolvedSource);
+                yield break;
+            }
+
+            yield return null;
+        }
+
+        FinishBottleScanWithoutPose(resolvedSource);
+    }
+
+    private void FinishBottleScanWithoutPose(string source)
+    {
+        IsBottleScanInProgress = false;
+        activeScanSource = "None";
+        bottleScanCoroutine = null;
+        BottleScanStatus = "Failed";
+        if (string.Equals(source, "Initial", System.StringComparison.Ordinal))
+        {
+            HasCompletedInitialBottleScan = true;
+        }
+
+        Debug.Log("[DetectedBottlePoseSubscriber] Bottle scan finished without a valid pose:"
+            + "\nsource=" + source);
+        ForceDebugStatusRefresh();
+    }
+
+    private void CommitActiveBottleSnapshot(string source)
+    {
+        CommitBottleSnapshot(source, activeScanSnapshot);
+        IsBottleScanInProgress = false;
+        activeScanSource = "None";
+        bottleScanCoroutine = null;
+        BottleScanStatus = activeScanSnapshot.Count > 0 ? "Complete" : "Failed";
+        if (string.Equals(source, "Initial", System.StringComparison.Ordinal))
+        {
+            HasCompletedInitialBottleScan = true;
+        }
+
+        ForceDebugStatusRefresh();
+    }
+
+    private void CommitBottleSnapshot(string source, List<UnityEngine.Pose> snapshot)
+    {
+        if (snapshot == null || snapshot.Count == 0)
+        {
+            FinishBottleScanWithoutPose(source);
+            return;
+        }
+
+        currentFrameAssignedTrackIds.Clear();
+        HashSet<int> seenTrackIds = new HashSet<int>();
+        int createdTracks = 0;
+        int updatedTracks = 0;
+        int photonSpawned = 0;
+        int photonUpdated = 0;
+        int ignoredGrabbed = 0;
+        int ignoredManual = 0;
+
+        for (int i = 0; i < snapshot.Count; i++)
+        {
+            UnityEngine.Pose pose = snapshot[i];
+            DetectedBottleTrack track = AssociateOrCreateTrack(pose.position, pose.rotation, out bool createdTrack);
+            seenTrackIds.Add(track.TrackId);
+            if (createdTrack)
+            {
+                createdTracks++;
+            }
+            else
+            {
+                updatedTracks++;
+            }
+
+            bool protectedByGrab = track.IsCurrentlyGrabbed || track.HasBeenGrabbed;
+            if (protectedByGrab)
+            {
+                ignoredGrabbed++;
+                continue;
+            }
+
+            if (ShouldSuppressLocalBottleDisplay())
+            {
+                PhotonSharedBottleSpawner spawner = ResolvePhotonBottleSpawner();
+                bool existed = spawner != null && spawner.HasDetectedBottleTrack(track.TrackId);
+                if (ForwardTrackToPhotonSharedBottleIfConnected(track))
+                {
+                    if (existed)
+                    {
+                        photonUpdated++;
+                    }
+                    else
+                    {
+                        photonSpawned++;
+                    }
+                }
+            }
+            else
+            {
+                SetBottleTarget(track.TrackId, track.UnityPosition);
+                GameObject instance = EnsureBottleInstance(track.TrackId, false);
+                if (instance != null)
+                {
+                    instance.transform.position = track.UnityPosition;
+                    instance.transform.rotation = track.UnityRotation;
+                }
+
+                ShowBottleInstance(track.TrackId, false);
+            }
+        }
+
+        if (ShouldSuppressLocalBottleDisplay())
+        {
+            HideLocalDetectedBottleInstances();
+        }
+
+        if (removeUnseenUngrabbedRosBottlesOnScan)
+        {
+            RemoveUnseenUngrabbedTracks(seenTrackIds);
+        }
+
+        latestDetectedCount = snapshot.Count;
+        Debug.Log("[DetectedBottlePoseSubscriber] Bottle snapshot committed:"
+            + "\nsource=" + source
+            + "\nposeCount=" + snapshot.Count
+            + "\nupdatedTracks=" + updatedTracks
+            + "\ncreatedTracks=" + createdTracks);
+
+        PhotonSharedBottleSpawner resolvedSpawner = ResolvePhotonBottleSpawner();
+        if (resolvedSpawner != null && resolvedSpawner.CanSpawnSharedBottle(out _))
+        {
+            resolvedSpawner.LogAppliedBottleSnapshot(source, photonSpawned, photonUpdated, ignoredGrabbed, ignoredManual);
+        }
+    }
+
+    private void CacheBottleSnapshot(string frameId, Vector3 unityPosition, Quaternion unityRotation)
+    {
+        latestDetectedUnityPositions.Clear();
+        latestDetectedUnityPositions.Add(unityPosition);
+        latestBottleSnapshot.Clear();
+        latestBottleSnapshot.Add(new UnityEngine.Pose(unityPosition, unityRotation));
+        hasLatestBottleSnapshot = true;
+        latestBottleSnapshotTime = Time.unscaledTime;
+        latestBottleSnapshotFrameId = GetFrameId(frameId);
+        latestDetectedCount = 1;
+        if (IsBottleScanInProgress)
+        {
+            CopySnapshot(latestBottleSnapshot, activeScanSnapshot);
+        }
+    }
+
+    private void TryCommitInitialSnapshotAfterPhotonJoin()
+    {
+        if (initialPhotonCommitCompleted
+            || !scanOnceOnStartup
+            || !hasLatestBottleSnapshot
+            || latestBottleSnapshot.Count == 0
+            || !ShouldSuppressLocalBottleDisplay())
+        {
+            return;
+        }
+
+        initialPhotonCommitCompleted = true;
+        CopySnapshot(latestBottleSnapshot, activeScanSnapshot);
+        CommitBottleSnapshot("Initial", activeScanSnapshot);
+    }
+
+    private void RemoveUnseenUngrabbedTracks(HashSet<int> seenTrackIds)
+    {
+        for (int i = bottleTracks.Count - 1; i >= 0; i--)
+        {
+            DetectedBottleTrack track = bottleTracks[i];
+            if (track == null || seenTrackIds.Contains(track.TrackId))
+            {
+                continue;
+            }
+
+            RefreshTrackGrabState(track);
+            if (track.IsCurrentlyGrabbed || track.HasBeenGrabbed)
+            {
+                continue;
+            }
+
+            PhotonSharedBottleSpawner spawner = ResolvePhotonBottleSpawner();
+            if (spawner != null)
+            {
+                spawner.TryDespawnDetectedBottleTrack(track.TrackId);
+            }
+
+            RemoveLocalBottleInstance(track.TrackId);
+            bottleTracks.RemoveAt(i);
+        }
+    }
+
+    private static void CopySnapshot(List<UnityEngine.Pose> source, List<UnityEngine.Pose> destination)
+    {
+        destination.Clear();
+        if (source == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < source.Count; i++)
+        {
+            destination.Add(source[i]);
+        }
+    }
+
     public void SpawnBottleManual()
     {
-        SpawnBottleManual(0);
+        RequestBottleScan();
     }
 
     public void SpawnBottleManual(int index)
+    {
+        RequestBottleScan();
+    }
+
+    public void RequestBottleScan()
+    {
+        if (IsBottleScanInProgress)
+        {
+            if (bottleScanCoroutine != null)
+            {
+                StopCoroutine(bottleScanCoroutine);
+                bottleScanCoroutine = null;
+            }
+
+            IsBottleScanInProgress = false;
+            BottleScanStatus = "Idle";
+            activeScanSource = "None";
+            ForceDebugStatusRefresh();
+            return;
+        }
+
+        StartBottleScan("Manual", manualScanWindowSec, false);
+    }
+
+    private void SpawnBottleManualLegacy(int index)
     {
         spawnBottleCallCount++;
         spawnBottleManualCallCount++;
@@ -671,6 +1036,8 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
         builder.AppendLine("PoseArrayMsg: " + MessageRegistry.GetRosMessageName<PoseArrayMsg>());
         builder.AppendLine("PoseStampedMsg: " + MessageRegistry.GetRosMessageName<PoseStampedMsg>());
         builder.AppendLine("/detected_bottle_poses received: " + poseArrayReceiveCount);
+        builder.AppendLine("Detected Bottles: " + bottleTracks.Count);
+        builder.AppendLine("Scan Status: " + BottleScanStatus);
         builder.AppendLine("latestDetectedCount: " + latestDetectedCount);
         builder.AppendLine("latestDetectedUnityPositions: "
             + FormatPositions(latestDetectedUnityPositions, 5));
@@ -1018,10 +1385,12 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
 
         targetUnityPosition = ConvertRosToUnity(rosPosition) * positionScale;
         Quaternion unityRotation = ConvertRosToUnityRotation(message.pose.orientation);
-        MarkLatestDetection(targetUnityPosition, unityRotation, frameId, 1f);
-        SetBottleTarget(0, targetUnityPosition);
-        EnsureBottleInstance(0, false);
-        ShowBottleInstance(0, true);
+        CacheBottleSnapshot(frameId, targetUnityPosition, unityRotation);
+        MarkLatestDetection(targetUnityPosition, unityRotation, frameId, 1f, false, 0);
+        if (IsBottleScanInProgress)
+        {
+            CopySnapshot(latestBottleSnapshot, activeScanSnapshot);
+        }
 
         Debug.Log("[DetectedBottlePoseSubscriber] Bottle pose update received");
         Debug.Log("[DetectedBottlePoseSubscriber] Bottle[0] updated");
@@ -1052,6 +1421,7 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
         Debug.Log("[DetectedBottlePoseSubscriber] PoseArray received count=" + receivedCount);
 
         latestDetectedUnityPositions.Clear();
+        latestBottleSnapshot.Clear();
         bool recordedPrimaryDetection = false;
         for (int i = 0; i < receivedCount; i++)
         {
@@ -1066,15 +1436,19 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
                 (float)pose.position.y,
                 (float)pose.position.z);
             Vector3 unityPosition = ConvertRosToUnity(rosPosition) * positionScale;
+            Quaternion unityRotation = ConvertRosToUnityRotation(pose.orientation);
             latestDetectedUnityPositions.Add(unityPosition);
+            latestBottleSnapshot.Add(new UnityEngine.Pose(unityPosition, unityRotation));
 
             if (!recordedPrimaryDetection)
             {
                 MarkLatestDetection(
                     unityPosition,
-                    ConvertRosToUnityRotation(pose.orientation),
+                    unityRotation,
                     frameId,
-                    1f);
+                    1f,
+                    false,
+                    0);
                 recordedPrimaryDetection = true;
             }
         }
@@ -1082,6 +1456,13 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
         Debug.Log("[DetectedBottlePoseSubscriber] Latest PoseArray cached count="
             + latestDetectedUnityPositions.Count);
         latestDetectedCount = latestDetectedUnityPositions.Count;
+        hasLatestBottleSnapshot = latestBottleSnapshot.Count > 0;
+        latestBottleSnapshotTime = Time.unscaledTime;
+        latestBottleSnapshotFrameId = frameId;
+        if (IsBottleScanInProgress && hasLatestBottleSnapshot)
+        {
+            CopySnapshot(latestBottleSnapshot, activeScanSnapshot);
+        }
         if (!recordedPrimaryDetection)
         {
             HasValidDetectedBottle = false;
@@ -1154,7 +1535,9 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
         Vector3 unityPosition,
         Quaternion unityRotation,
         string frameId,
-        float confidence)
+        float confidence,
+        bool forwardToPhoton = true,
+        int trackId = 0)
     {
         if (!IsValidRotation(unityRotation))
         {
@@ -1168,6 +1551,359 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
         HasValidDetectedBottle = true;
         LatestDetectionConfidence = Mathf.Clamp01(confidence);
         LatestDetectionSourceFrame = GetFrameId(frameId);
+        LogLatestRosBottlePoseCachedIfNeeded(unityPosition, unityRotation);
+        if (forwardToPhoton)
+        {
+            ForwardLatestPoseToPhotonSharedBottleIfConnected(trackId, unityPosition, unityRotation, false, false);
+        }
+    }
+
+    private DetectedBottleTrack AssociateOrCreateTrack(
+        Vector3 unityPosition,
+        Quaternion unityRotation,
+        out bool createdTrack)
+    {
+        createdTrack = false;
+        DetectedBottleTrack bestTrack = null;
+        float bestDistance = float.PositiveInfinity;
+        float maxAssociationDistance = Mathf.Max(0.01f, trackAssociationDistanceM);
+        for (int i = 0; i < bottleTracks.Count; i++)
+        {
+            DetectedBottleTrack track = bottleTracks[i];
+            if (track == null || currentFrameAssignedTrackIds.Contains(track.TrackId))
+            {
+                continue;
+            }
+
+            float distance = Vector3.Distance(track.UnityPosition, unityPosition);
+            if (distance <= maxAssociationDistance && distance < bestDistance)
+            {
+                bestDistance = distance;
+                bestTrack = track;
+            }
+        }
+
+        if (bestTrack == null)
+        {
+            bestTrack = new DetectedBottleTrack
+            {
+                TrackId = nextBottleTrackId++,
+                UnityPosition = unityPosition,
+                UnityRotation = unityRotation,
+                LastSeenUnscaledTime = Time.unscaledTime
+            };
+            bestTrack.UpdateLogged = true;
+            bestTrack.LastLoggedPosition = unityPosition;
+            bottleTracks.Add(bestTrack);
+            createdTrack = true;
+            Debug.Log("[DetectedBottlePoseSubscriber] Created bottle track:"
+                + "\ntrackId=" + bestTrack.TrackId
+                + "\nposition=" + unityPosition.ToString("F3"));
+        }
+        else
+        {
+            RefreshTrackGrabState(bestTrack);
+            if (bestTrack.IsCurrentlyGrabbed || bestTrack.HasBeenGrabbed)
+            {
+                currentFrameAssignedTrackIds.Add(bestTrack.TrackId);
+                return bestTrack;
+            }
+
+            if (!bestTrack.UpdateLogged
+                || Vector3.Distance(bestTrack.LastLoggedPosition, unityPosition) >= Mathf.Max(0.01f, rosPosePositionThresholdM))
+            {
+                bestTrack.UpdateLogged = true;
+                bestTrack.LastLoggedPosition = unityPosition;
+                Debug.Log("[DetectedBottlePoseSubscriber] Updated bottle track:"
+                    + "\ntrackId=" + bestTrack.TrackId
+                    + "\nposition=" + unityPosition.ToString("F3"));
+            }
+        }
+
+        currentFrameAssignedTrackIds.Add(bestTrack.TrackId);
+        bestTrack.UnityPosition = unityPosition;
+        bestTrack.UnityRotation = unityRotation;
+        bestTrack.LastSeenUnscaledTime = Time.unscaledTime;
+        bestTrack.TimedOutLogged = false;
+        RefreshTrackGrabState(bestTrack);
+        return bestTrack;
+    }
+
+    private bool ForwardTrackToPhotonSharedBottleIfConnected(DetectedBottleTrack track)
+    {
+        if (track == null)
+        {
+            return false;
+        }
+
+        float now = Time.unscaledTime;
+        float minInterval = 1f / Mathf.Max(0.1f, rosPoseUpdateRateHz);
+        if (lastPhotonTrackUpdateTime.TryGetValue(track.TrackId, out float lastUpdateTime)
+            && now - lastUpdateTime < minInterval)
+        {
+            return false;
+        }
+
+        bool shouldUpdate = !lastPhotonTrackUpdatePosition.TryGetValue(track.TrackId, out Vector3 lastPosition)
+            || !lastPhotonTrackUpdateRotation.TryGetValue(track.TrackId, out Quaternion lastRotation)
+            || Vector3.Distance(lastPosition, track.UnityPosition) >= Mathf.Max(0.01f, rosPosePositionThresholdM)
+            || Quaternion.Angle(lastRotation, track.UnityRotation) >= 5f;
+        if (!shouldUpdate)
+        {
+            return false;
+        }
+
+        if (ForwardLatestPoseToPhotonSharedBottleIfConnected(
+            track.TrackId,
+            track.UnityPosition,
+            track.UnityRotation,
+            track.IsCurrentlyGrabbed,
+            track.HasBeenGrabbed))
+        {
+            lastPhotonTrackUpdateTime[track.TrackId] = now;
+            lastPhotonTrackUpdatePosition[track.TrackId] = track.UnityPosition;
+            lastPhotonTrackUpdateRotation[track.TrackId] = track.UnityRotation;
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool ForwardLatestPoseToPhotonSharedBottleIfConnected(
+        int trackId,
+        Vector3 unityPosition,
+        Quaternion unityRotation,
+        bool isCurrentlyGrabbed,
+        bool hasBeenGrabbed)
+    {
+        if (!usePhotonSharedBottleWhenConnected)
+        {
+            return false;
+        }
+
+        PhotonSharedBottleSpawner spawner = ResolvePhotonBottleSpawner();
+        if (spawner == null)
+        {
+            return false;
+        }
+
+        if (!spawner.CanSpawnSharedBottle(out _))
+        {
+            return false;
+        }
+
+        bool updated = spawner.TrySpawnOrUpdateDetectedBottle(
+            trackId,
+            unityPosition,
+            unityRotation,
+            isCurrentlyGrabbed,
+            hasBeenGrabbed);
+        if (updated && disableLocalBottleWhenPhotonConnected)
+        {
+            HideLocalDetectedBottleInstances();
+        }
+
+        return updated;
+    }
+
+    private bool ShouldSuppressLocalBottleDisplay()
+    {
+        if (!usePhotonSharedBottleWhenConnected || !disableLocalBottleWhenPhotonConnected)
+        {
+            return false;
+        }
+
+        PhotonSharedBottleSpawner spawner = ResolvePhotonBottleSpawner();
+        return spawner != null && spawner.CanSpawnSharedBottle(out _);
+    }
+
+    private PhotonSharedBottleSpawner ResolvePhotonBottleSpawner()
+    {
+        if (photonBottleSpawner != null)
+        {
+            return photonBottleSpawner;
+        }
+
+        photonBottleSpawner = FindObjectOfType<PhotonSharedBottleSpawner>(true);
+        return photonBottleSpawner;
+    }
+
+    private void HideLocalDetectedBottleInstances()
+    {
+        bool changed = false;
+        for (int i = 0; i < bottleInstances.Count; i++)
+        {
+            GameObject instance = bottleInstances[i];
+            if (instance != null && instance.activeSelf)
+            {
+                instance.SetActive(false);
+                changed = true;
+            }
+        }
+
+        if (bottleInstance != null && bottleInstance.activeSelf)
+        {
+            bottleInstance.SetActive(false);
+            changed = true;
+        }
+
+        if (changed || !localDetectedBottleHiddenForPhoton)
+        {
+            localDetectedBottleHiddenForPhoton = true;
+            Debug.Log("[DetectedBottlePoseSubscriber] Local detected bottle display hidden while Photon shared bottle is active.");
+        }
+    }
+
+    private void RefreshTrackGrabStates()
+    {
+        for (int i = 0; i < bottleTracks.Count; i++)
+        {
+            RefreshTrackGrabState(bottleTracks[i]);
+        }
+    }
+
+    private void RefreshTrackGrabState(DetectedBottleTrack track)
+    {
+        if (track == null)
+        {
+            return;
+        }
+
+        NetworkedSharedSceneObject sharedObject = ResolveSharedSceneObjectForTrack(track.TrackId);
+        track.SharedSceneObject = sharedObject;
+#if FUSION_WEAVER && FUSION2
+        track.PhotonBottleObject = sharedObject != null ? sharedObject.Object : null;
+#endif
+        bool isGrabbed = sharedObject != null && sharedObject.IsGrabbedByAnyUser;
+        track.IsCurrentlyGrabbed = isGrabbed;
+        if (isGrabbed)
+        {
+            track.HasBeenGrabbed = true;
+        }
+    }
+
+    private NetworkedSharedSceneObject ResolveSharedSceneObjectForTrack(int trackId)
+    {
+        NetworkedSharedSceneObject[] sharedObjects = FindObjectsOfType<NetworkedSharedSceneObject>(true);
+        for (int i = 0; i < sharedObjects.Length; i++)
+        {
+            NetworkedSharedSceneObject sharedObject = sharedObjects[i];
+            if (sharedObject != null
+                && sharedObject.IsPhotonSharedNetworkBottle
+                && sharedObject.SharedOrigin == SharedBottleOrigin.RosDetected
+                && sharedObject.SharedDetectedBottleTrackId == trackId)
+            {
+                return sharedObject;
+            }
+        }
+
+        return null;
+    }
+
+    private void UpdateBottleTrackTimeouts()
+    {
+        if (bottleTracks.Count == 0)
+        {
+            return;
+        }
+
+        float now = Time.unscaledTime;
+        float timeout = Mathf.Max(0.1f, trackLostTimeoutSec);
+        for (int i = bottleTracks.Count - 1; i >= 0; i--)
+        {
+            DetectedBottleTrack track = bottleTracks[i];
+            if (track == null)
+            {
+                bottleTracks.RemoveAt(i);
+                continue;
+            }
+
+            if (now - track.LastSeenUnscaledTime < timeout)
+            {
+                continue;
+            }
+
+            RefreshTrackGrabState(track);
+            if (track.IsCurrentlyGrabbed || track.HasBeenGrabbed || !destroyUnclaimedTrackAfterTimeout)
+            {
+                LogTrackTimedOutOnce(track, "Kept");
+                continue;
+            }
+
+            bool despawned = true;
+            PhotonSharedBottleSpawner spawner = ResolvePhotonBottleSpawner();
+            if (spawner != null)
+            {
+                despawned = spawner.TryDespawnDetectedBottleTrack(track.TrackId);
+            }
+
+            if (!despawned)
+            {
+                LogTrackTimedOutOnce(track, "Kept");
+                continue;
+            }
+
+            RemoveLocalBottleInstance(track.TrackId);
+            bottleTracks.RemoveAt(i);
+            Debug.Log("[DetectedBottlePoseSubscriber] Bottle track timed out:"
+                + "\ntrackId=" + track.TrackId
+                + "\naction=Despawned");
+        }
+    }
+
+    private void LogTrackTimedOutOnce(DetectedBottleTrack track, string action)
+    {
+        if (track == null || track.TimedOutLogged)
+        {
+            return;
+        }
+
+        track.TimedOutLogged = true;
+        Debug.Log("[DetectedBottlePoseSubscriber] Bottle track timed out:"
+            + "\ntrackId=" + track.TrackId
+            + "\naction=" + action);
+    }
+
+    private void RemoveLocalBottleInstance(int trackId)
+    {
+        if (trackId >= 0 && trackId < bottleInstances.Count)
+        {
+            GameObject instance = bottleInstances[trackId];
+            if (instance != null)
+            {
+                Destroy(instance);
+            }
+
+            bottleInstances[trackId] = null;
+        }
+
+        if (trackId >= 0 && trackId < bottleHasTargetPositions.Count)
+        {
+            bottleHasTargetPositions[trackId] = false;
+        }
+
+        if (trackId == 0)
+        {
+            bottleInstance = null;
+        }
+    }
+
+    private void LogLatestRosBottlePoseCachedIfNeeded(Vector3 position, Quaternion rotation)
+    {
+        bool shouldLog = !latestRosBottlePoseCacheLogged
+            || Vector3.Distance(lastLoggedLatestRosBottlePosition, position) >= 0.02f
+            || Quaternion.Angle(lastLoggedLatestRosBottleRotation, rotation) >= 5f;
+        if (!shouldLog)
+        {
+            return;
+        }
+
+        latestRosBottlePoseCacheLogged = true;
+        lastLoggedLatestRosBottlePosition = position;
+        lastLoggedLatestRosBottleRotation = rotation;
+        Debug.Log("[DetectedBottlePoseSubscriber] Latest ROS bottle pose cached:"
+            + "\nposition=" + position.ToString("F3")
+            + "\nrotation=" + rotation.ToString("F3"));
     }
 
     private void EnsureBottleListCapacity(int index)
@@ -1281,6 +2017,7 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
         if (keepBottleVisible || !instance.activeSelf)
         {
             instance.SetActive(true);
+            localDetectedBottleHiddenForPhoton = false;
         }
 
         if (logKeepVisible && keepBottleVisible)

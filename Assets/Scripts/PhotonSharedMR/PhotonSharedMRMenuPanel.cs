@@ -16,6 +16,7 @@ public class PhotonSharedMRMenuPanel : MonoBehaviour
     [Header("Scene References")]
     public RectTransform existingMenuRoot;
     public PhotonSharedMRLoginPanel loginPanel;
+    public PhotonSharedMRLoginPanelVisibilityController loginPanelVisibilityController;
     public PhotonFusionSharedRoomBootstrap bootstrap;
     public RoleBasedInfoFilter roleFilter;
     public PhotonSharedBottleSpawner bottleSpawner;
@@ -517,6 +518,13 @@ public class PhotonSharedMRMenuPanel : MonoBehaviour
         if (loginPanel == null)
         {
             loginPanel = FindObjectOfType<PhotonSharedMRLoginPanel>(true);
+        }
+
+        if (loginPanelVisibilityController == null)
+        {
+            loginPanelVisibilityController = loginPanel != null && loginPanel.visibilityController != null
+                ? loginPanel.visibilityController
+                : FindObjectOfType<PhotonSharedMRLoginPanelVisibilityController>(true);
         }
 
         if (bootstrap == null)

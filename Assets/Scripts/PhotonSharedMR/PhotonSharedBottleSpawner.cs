@@ -22,6 +22,12 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
     public float spawnVerticalOffset = -0.08f;
     public int maxSharedBottleCount = 8;
 
+    [Header("Detected ROS Bottle Pose")]
+    public bool stopRosPoseAfterFirstGrab = true;
+    public float rosPoseUpdateRateHz = 10.0f;
+    public float rosPosePositionThresholdM = 0.02f;
+    public float rosPoseRotationThresholdDeg = 5.0f;
+
     [Header("Quest / Editor Spawn Controls")]
     public bool enableSpawnControls = true;
     public float controlsDistance = 0.95f;
@@ -44,6 +50,18 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
     private int remoteSpawnObservedCount;
     private string lastSpawnedBottleNetworkId = "None";
     private string lastSpawnError = "None";
+    private readonly Dictionary<int, NetworkedSharedSceneObject> spawnedBottleByTrackId =
+        new Dictionary<int, NetworkedSharedSceneObject>();
+    private readonly Dictionary<int, bool> rosBottleWasGrabbedByTrackId =
+        new Dictionary<int, bool>();
+    private readonly Dictionary<int, Vector3> lastRosPoseAppliedPositionByTrackId =
+        new Dictionary<int, Vector3>();
+    private readonly Dictionary<int, Quaternion> lastRosPoseAppliedRotationByTrackId =
+        new Dictionary<int, Quaternion>();
+    private readonly Dictionary<int, float> lastRosPoseAppliedTimeByTrackId =
+        new Dictionary<int, float>();
+    private readonly Dictionary<int, string> lastIgnoredRosPoseReasonByTrackId =
+        new Dictionary<int, string>();
 
 #if FUSION_WEAVER && FUSION2
     private NetworkObject pendingDespawnObject;
@@ -126,6 +144,198 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
         Debug.Log("[PhotonSharedBottleSpawner] BOTTLE_SPAWN_MODE shared source=" + resolvedSource);
         Debug.Log("[PhotonSharedBottleSpawner] BOTTLE_SPAWN_REQUEST source=" + resolvedSource);
         return RequestSpawnInternal(position, rotation, resolvedSource);
+    }
+
+    public bool TrySpawnOrUpdateDetectedBottle(Vector3 unityPosition, Quaternion unityRotation)
+    {
+        return TrySpawnOrUpdateDetectedBottle(0, unityPosition, unityRotation, false, false);
+    }
+
+    public bool HasDetectedBottleTrack(int trackId)
+    {
+        return ResolveDetectedRosBottle(Mathf.Max(0, trackId)) != null;
+    }
+
+    public void LogAppliedBottleSnapshot(
+        string source,
+        int spawned,
+        int updated,
+        int ignoredGrabbed,
+        int ignoredManual)
+    {
+        Debug.Log("[PhotonSharedBottleSpawner] Applied bottle snapshot:"
+            + "\nsource=" + (string.IsNullOrWhiteSpace(source) ? "Unknown" : source)
+            + "\nspawned=" + spawned
+            + "\nupdated=" + updated
+            + "\nignoredGrabbed=" + ignoredGrabbed
+            + "\nignoredManual=" + ignoredManual);
+    }
+
+    public bool TrySpawnOrUpdateDetectedBottle(
+        int trackId,
+        Vector3 unityPosition,
+        Quaternion unityRotation,
+        bool isCurrentlyGrabbed,
+        bool hasBeenGrabbed)
+    {
+        ResolveReferences();
+        int resolvedTrackId = Mathf.Max(0, trackId);
+
+#if FUSION_WEAVER && FUSION2
+        NetworkRunner runner = ResolveRunner();
+        if (runner == null || !runner.IsRunning || bootstrap == null || !IsJoinedStatus(bootstrap.LastJoinStatus))
+        {
+            LogIgnoredRosBottlePose(resolvedTrackId, "PhotonDisconnected");
+            return false;
+        }
+
+        if (!HasRosPoseAuthority())
+        {
+            LogIgnoredRosBottlePose(resolvedTrackId, "NotAuthority");
+            return false;
+        }
+
+        NetworkedSharedSceneObject sharedBottle = ResolveDetectedRosBottle(resolvedTrackId);
+        if (sharedBottle == null)
+        {
+            if (!CanSpawnSharedBottle(out string reason))
+            {
+                LogIgnoredRosBottlePose(resolvedTrackId, IsPhotonReadyFailure(reason) ? "PhotonDisconnected" : reason);
+                return false;
+            }
+
+            if (SharedNetworkBottleCount >= Mathf.Max(1, maxSharedBottleCount))
+            {
+                LogIgnoredRosBottlePose(resolvedTrackId, "MaxSharedBottleCountReached");
+                return false;
+            }
+
+            sharedBottle = RequestSpawnInternal(
+                unityPosition,
+                unityRotation,
+                "RosPose:" + resolvedTrackId,
+                resolvedTrackId,
+                SharedBottleOrigin.RosDetected);
+            if (sharedBottle == null)
+            {
+                LogIgnoredRosBottlePose(resolvedTrackId, string.IsNullOrWhiteSpace(lastSpawnError) ? "SpawnFailed" : lastSpawnError);
+                return false;
+            }
+
+            spawnedBottleByTrackId[resolvedTrackId] = sharedBottle;
+            rosBottleWasGrabbedByTrackId[resolvedTrackId] = hasBeenGrabbed || isCurrentlyGrabbed;
+            MarkRosPoseApplied(resolvedTrackId, unityPosition, unityRotation);
+            ClearIgnoredRosBottlePose(resolvedTrackId);
+            Debug.Log("[PhotonSharedBottleSpawner] Spawned ROS detected bottle:"
+                + "\ntrackId=" + resolvedTrackId
+                + "\nposition=" + FormatVector(unityPosition)
+                + "\nauthority=" + runner.LocalPlayer);
+            return true;
+        }
+
+        if (sharedBottle.IsGrabbedByAnyUser)
+        {
+            rosBottleWasGrabbedByTrackId[resolvedTrackId] = true;
+            LogIgnoredRosBottlePose(resolvedTrackId, "BottleGrabbed");
+            return false;
+        }
+
+        bool wasGrabbed = hasBeenGrabbed
+            || (rosBottleWasGrabbedByTrackId.TryGetValue(resolvedTrackId, out bool storedWasGrabbed) && storedWasGrabbed);
+        if (stopRosPoseAfterFirstGrab && wasGrabbed)
+        {
+            LogIgnoredRosBottlePose(resolvedTrackId, "AlreadyManuallyPlaced");
+            return false;
+        }
+
+        if (!sharedBottle.HasLocalStateAuthority
+            && !sharedBottle.TryRequestSharedStateAuthority("RosPose"))
+        {
+            LogIgnoredRosBottlePose(resolvedTrackId, "NotAuthority");
+            return false;
+        }
+
+        float minInterval = 1f / Mathf.Max(0.01f, rosPoseUpdateRateHz);
+        float now = Time.realtimeSinceStartup;
+        if (lastRosPoseAppliedTimeByTrackId.TryGetValue(resolvedTrackId, out float lastAppliedTime)
+            && now - lastAppliedTime < minInterval)
+        {
+            LogIgnoredRosBottlePose(resolvedTrackId, "BelowThreshold");
+            return false;
+        }
+
+        bool hasLastPosition = lastRosPoseAppliedPositionByTrackId.TryGetValue(resolvedTrackId, out Vector3 lastPosition);
+        bool hasLastRotation = lastRosPoseAppliedRotationByTrackId.TryGetValue(resolvedTrackId, out Quaternion lastRotation);
+        bool changedEnough = !hasLastPosition
+            || !hasLastRotation
+            || Vector3.Distance(lastPosition, unityPosition) >= Mathf.Max(0.0001f, rosPosePositionThresholdM)
+            || Quaternion.Angle(lastRotation, unityRotation) >= Mathf.Max(0.01f, rosPoseRotationThresholdDeg);
+        if (!changedEnough)
+        {
+            LogIgnoredRosBottlePose(resolvedTrackId, "BelowThreshold");
+            return false;
+        }
+
+        if (!sharedBottle.TryApplyAuthorityPose(unityPosition, unityRotation, "RosPose", true))
+        {
+            LogIgnoredRosBottlePose(resolvedTrackId, sharedBottle.IsGrabbedByAnyUser ? "BottleGrabbed" : "NotAuthority");
+            return false;
+        }
+
+        spawnedBottleByTrackId[resolvedTrackId] = sharedBottle;
+        rosBottleWasGrabbedByTrackId[resolvedTrackId] = wasGrabbed;
+        MarkRosPoseApplied(resolvedTrackId, unityPosition, unityRotation);
+        ClearIgnoredRosBottlePose(resolvedTrackId);
+        Debug.Log("[PhotonSharedBottleSpawner] Updated ROS detected bottle:"
+            + "\ntrackId=" + resolvedTrackId
+            + "\nreason=RosPose");
+        return true;
+#else
+        LogIgnoredRosBottlePose(resolvedTrackId, "PhotonDisconnected");
+        return false;
+#endif
+    }
+
+    public bool TryDespawnDetectedBottleTrack(int trackId)
+    {
+        int resolvedTrackId = Mathf.Max(0, trackId);
+#if FUSION_WEAVER && FUSION2
+        NetworkedSharedSceneObject sharedBottle = ResolveDetectedRosBottle(resolvedTrackId);
+        if (sharedBottle == null || sharedBottle.Object == null)
+        {
+            RemoveRosTrackState(resolvedTrackId);
+            return true;
+        }
+
+        if (sharedBottle.IsGrabbedByAnyUser
+            || (stopRosPoseAfterFirstGrab
+                && rosBottleWasGrabbedByTrackId.TryGetValue(resolvedTrackId, out bool wasGrabbed)
+                && wasGrabbed))
+        {
+            LogIgnoredRosBottlePose(resolvedTrackId, "AlreadyManuallyPlaced");
+            return false;
+        }
+
+        NetworkRunner runner = ResolveRunner();
+        if (runner == null || !runner.IsRunning)
+        {
+            LogIgnoredRosBottlePose(resolvedTrackId, "PhotonDisconnected");
+            return false;
+        }
+
+        if (!sharedBottle.HasLocalStateAuthority)
+        {
+            LogIgnoredRosBottlePose(resolvedTrackId, "NotAuthority");
+            return false;
+        }
+
+        DespawnNetworkBottle(runner, sharedBottle.Object);
+        RemoveRosTrackState(resolvedTrackId);
+        return true;
+#else
+        RemoveRosTrackState(resolvedTrackId);
+        return true;
+#endif
     }
 
     public bool CanSpawnSharedBottle(out string reason)
@@ -234,7 +444,12 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
         RequestSpawnInternal(position, rotation, source);
     }
 
-    private NetworkedSharedSceneObject RequestSpawnInternal(Vector3 position, Quaternion rotation, string source)
+    private NetworkedSharedSceneObject RequestSpawnInternal(
+        Vector3 position,
+        Quaternion rotation,
+        string source,
+        int detectedTrackId = -1,
+        SharedBottleOrigin bottleOrigin = SharedBottleOrigin.Manual)
     {
         localSpawnRequestCount++;
         lastSpawnError = "None";
@@ -293,7 +508,12 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
                 runner.LocalPlayer,
                 (spawnRunner, obj) =>
                 {
-                    ConfigureSpawnedBottle(obj, spawnRunner.LocalPlayer, (float)spawnRunner.SimulationTime);
+                    ConfigureSpawnedBottle(
+                        obj,
+                        spawnRunner.LocalPlayer,
+                        (float)spawnRunner.SimulationTime,
+                        detectedTrackId,
+                        bottleOrigin);
                 });
 
             if (spawned == null)
@@ -322,6 +542,95 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
     public NetworkedSharedSceneObject FindLatestSharedBottle()
     {
         return FindNewestSharedBottleWithNetworkObject();
+    }
+
+    private NetworkedSharedSceneObject ResolveDetectedRosBottle(int trackId)
+    {
+        if (spawnedBottleByTrackId.TryGetValue(trackId, out NetworkedSharedSceneObject cachedBottle)
+            && cachedBottle != null
+            && cachedBottle.isActiveAndEnabled
+            && cachedBottle.IsPhotonSharedNetworkBottle
+            && cachedBottle.SharedOrigin == SharedBottleOrigin.RosDetected)
+        {
+            return cachedBottle;
+        }
+
+        NetworkedSharedSceneObject[] sharedObjects = FindObjectsOfType<NetworkedSharedSceneObject>(true);
+        for (int i = 0; i < sharedObjects.Length; i++)
+        {
+            NetworkedSharedSceneObject sharedObject = sharedObjects[i];
+            if (sharedObject == null
+                || !sharedObject.IsPhotonSharedNetworkBottle
+                || sharedObject.SharedOrigin != SharedBottleOrigin.RosDetected
+                || sharedObject.SharedDetectedBottleTrackId != trackId)
+            {
+                continue;
+            }
+
+            spawnedBottleByTrackId[trackId] = sharedObject;
+            return sharedObject;
+        }
+
+        spawnedBottleByTrackId.Remove(trackId);
+        return null;
+    }
+
+    private void MarkRosPoseApplied(int trackId, Vector3 position, Quaternion rotation)
+    {
+        lastRosPoseAppliedPositionByTrackId[trackId] = position;
+        lastRosPoseAppliedRotationByTrackId[trackId] = rotation;
+        lastRosPoseAppliedTimeByTrackId[trackId] = Time.realtimeSinceStartup;
+    }
+
+    private void LogIgnoredRosBottlePose(int trackId, string reason)
+    {
+        string resolvedReason = string.IsNullOrWhiteSpace(reason) ? "Unknown" : reason;
+        if (lastIgnoredRosPoseReasonByTrackId.TryGetValue(trackId, out string lastReason)
+            && string.Equals(lastReason, resolvedReason, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        lastIgnoredRosPoseReasonByTrackId[trackId] = resolvedReason;
+        Debug.Log("[PhotonSharedBottleSpawner] Ignored ROS pose:"
+            + "\ntrackId=" + trackId
+            + "\nreason=" + resolvedReason);
+    }
+
+    private void ClearIgnoredRosBottlePose(int trackId)
+    {
+        lastIgnoredRosPoseReasonByTrackId.Remove(trackId);
+    }
+
+    private void RemoveRosTrackState(int trackId)
+    {
+        spawnedBottleByTrackId.Remove(trackId);
+        rosBottleWasGrabbedByTrackId.Remove(trackId);
+        lastRosPoseAppliedPositionByTrackId.Remove(trackId);
+        lastRosPoseAppliedRotationByTrackId.Remove(trackId);
+        lastRosPoseAppliedTimeByTrackId.Remove(trackId);
+        lastIgnoredRosPoseReasonByTrackId.Remove(trackId);
+    }
+
+    private bool HasRosPoseAuthority()
+    {
+        if (NetworkUserAvatar.Local != null)
+        {
+            return NetworkUserAvatar.Local.IsHostLikeUser;
+        }
+
+        return bootstrap != null
+            && bootstrap.defaultSessionSettings != null
+            && bootstrap.defaultSessionSettings.isHostLikeUser;
+    }
+
+    private static bool IsPhotonReadyFailure(string reason)
+    {
+        return string.Equals(reason, "MissingBootstrap", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(reason, "RunnerMissing", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(reason, "RunnerNotRunning", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(reason, "PhotonNotJoined", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(reason, "FusionDisabled", StringComparison.OrdinalIgnoreCase);
     }
 
     private void ResolveReferences()
@@ -701,7 +1010,12 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
         return bootstrap.Runner;
     }
 
-    private static void ConfigureSpawnedBottle(NetworkObject obj, PlayerRef spawnedBy, float spawnedAtRunnerTime)
+    private static void ConfigureSpawnedBottle(
+        NetworkObject obj,
+        PlayerRef spawnedBy,
+        float spawnedAtRunnerTime,
+        int detectedTrackId,
+        SharedBottleOrigin bottleOrigin)
     {
         NetworkedSharedSceneObject sharedObject = obj != null ? obj.GetComponent<NetworkedSharedSceneObject>() : null;
         if (sharedObject == null)
@@ -715,6 +1029,7 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
         sharedObject.syncPose = true;
         sharedObject.isPhotonSharedNetworkBottle = true;
         sharedObject.SetSharedSpawnMetadata(spawnedBy, spawnedAtRunnerTime);
+        sharedObject.SetDetectedBottleMetadata(detectedTrackId, bottleOrigin);
     }
 
     private void RegisterObservedBottle(NetworkObject networkObject, bool fromLocalSpawnCall)
@@ -734,6 +1049,11 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
         string networkId = FormatNetworkId(networkObject);
         observedBottleIds.Add(networkId);
         lastSpawnedBottleNetworkId = networkId;
+        if (sharedObject.SharedOrigin == SharedBottleOrigin.RosDetected
+            && sharedObject.SharedDetectedBottleTrackId >= 0)
+        {
+            spawnedBottleByTrackId[sharedObject.SharedDetectedBottleTrackId] = sharedObject;
+        }
 
         bool localAuthority = runner != null
             && runner.IsRunning
@@ -762,6 +1082,14 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
     private void DespawnNetworkBottle(NetworkRunner runner, NetworkObject target)
     {
         string networkId = FormatNetworkId(target);
+        NetworkedSharedSceneObject sharedObject = target != null ? target.GetComponent<NetworkedSharedSceneObject>() : null;
+        if (sharedObject != null
+            && sharedObject.SharedOrigin == SharedBottleOrigin.RosDetected
+            && sharedObject.SharedDetectedBottleTrackId >= 0)
+        {
+            RemoveRosTrackState(sharedObject.SharedDetectedBottleTrackId);
+        }
+
         runner.Despawn(target);
         observedBottleIds.Remove(networkId);
         localBottleLogIds.Remove(networkId);

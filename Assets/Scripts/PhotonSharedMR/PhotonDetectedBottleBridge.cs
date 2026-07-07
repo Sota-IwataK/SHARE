@@ -164,14 +164,17 @@ public class PhotonDetectedBottleBridge : MonoBehaviour
             }
 
             nextSpawnAttemptTime = Time.realtimeSinceStartup + Mathf.Max(0.1f, spawnRetryIntervalSeconds);
-            trackedSharedBottle = sharedBottleSpawner.SpawnSharedBottleAtPose(
+            sharedBottleSpawner.TrySpawnOrUpdateDetectedBottle(
                 detectedPose.position,
-                detectedPose.rotation,
-                DetectionSpawnSource + ":" + DetectedBottleId);
+                detectedPose.rotation);
+            trackedSharedBottle = ResolveTrackedSharedBottle();
             lastSharedWorldPosition = detectedPose.position;
-            LogState("PHOTON_DETECTED_BOTTLE_SHARED_SPAWN"
-                + " id=" + DetectedBottleId
-                + " position=" + FormatVector(detectedPose.position));
+            if (trackedSharedBottle != null)
+            {
+                LogState("PHOTON_DETECTED_BOTTLE_SHARED_SPAWN"
+                    + " id=" + DetectedBottleId
+                    + " position=" + FormatVector(detectedPose.position));
+            }
             return;
         }
 
@@ -183,13 +186,6 @@ public class PhotonDetectedBottleBridge : MonoBehaviour
             return;
         }
 
-        if (!trackedSharedBottle.HasLocalStateAuthority
-            && !trackedSharedBottle.TryRequestSharedStateAuthority("RealSenseDetection"))
-        {
-            LogPose("PHOTON_DETECTED_BOTTLE_UPDATE_SKIPPED reason=AuthorityPending");
-            return;
-        }
-
         if (Time.realtimeSinceStartup < nextSharedPoseUpdateTime)
         {
             return;
@@ -197,11 +193,9 @@ public class PhotonDetectedBottleBridge : MonoBehaviour
 
         nextSharedPoseUpdateTime = Time.realtimeSinceStartup
             + Mathf.Max(0.01f, sharedPoseUpdateMinIntervalSeconds);
-        if (trackedSharedBottle.TryApplyAuthorityPose(
+        if (sharedBottleSpawner.TrySpawnOrUpdateDetectedBottle(
             detectedPose.position,
-            detectedPose.rotation,
-            "RealSenseDetection",
-            false))
+            detectedPose.rotation))
         {
             lastSharedWorldPosition = detectedPose.position;
             LogPose("PHOTON_DETECTED_BOTTLE_SHARED_UPDATE"

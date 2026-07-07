@@ -207,6 +207,11 @@ public static class SharePhotonSharedMRSceneConfigurator
         loginPanel.loginScale = 0.001f;
         loginPanel.faceCameraOnOpen = true;
         loginPanel.EnsurePanel();
+        PhotonSharedMRLoginPanelVisibilityController loginVisibilityController =
+            EnsureComponent<PhotonSharedMRLoginPanelVisibilityController>(loginObject);
+        GameObject startupLoginPanel = FindChildRecursive(loginPanel.panelRoot != null ? loginPanel.panelRoot.transform : null, "StartupPhotonLoginPanel")?.gameObject;
+        loginVisibilityController.SetTargets(startupLoginPanel, loginPanel.panelRoot);
+        loginPanel.visibilityController = loginVisibilityController;
         EnsureStartupLoginPanelPersistentWiring(loginPanel);
         loginPanel.SetPanelVisible(false);
 
@@ -247,6 +252,7 @@ public static class SharePhotonSharedMRSceneConfigurator
         DisableLegacyPhotonSettingEntry();
         menuPanel.existingMenuRoot = FindExistingMenuRoot();
         menuPanel.loginPanel = loginPanel;
+        menuPanel.loginPanelVisibilityController = loginVisibilityController;
         menuPanel.bootstrap = bootstrap;
         menuPanel.roleFilter = filter;
         menuPanel.bottleSpawner = bottleSpawner;
@@ -264,6 +270,7 @@ public static class SharePhotonSharedMRSceneConfigurator
 
         PhotonSharedMRButtonCollection photonButtons = EnsurePhotonButtonCollection(
             loginPanel,
+            loginVisibilityController,
             bootstrap,
             bottleSpawner,
             debugPanel);
@@ -954,6 +961,7 @@ public static class SharePhotonSharedMRSceneConfigurator
 
     private static PhotonSharedMRButtonCollection EnsurePhotonButtonCollection(
         PhotonSharedMRLoginPanel loginPanel,
+        PhotonSharedMRLoginPanelVisibilityController loginVisibilityController,
         PhotonFusionSharedRoomBootstrap bootstrap,
         PhotonSharedBottleSpawner bottleSpawner,
         PhotonSharedMRDebugPanel debugPanel)
@@ -1001,6 +1009,7 @@ public static class SharePhotonSharedMRSceneConfigurator
         PhotonSharedMRButtonCollection manager = EnsureComponent<PhotonSharedMRButtonCollection>(collection);
         manager.collectionRoot = collection;
         manager.loginPanel = loginPanel;
+        manager.loginPanelVisibilityController = loginVisibilityController;
         manager.bootstrap = bootstrap;
         manager.bottleSpawner = bottleSpawner;
         manager.debugPanel = debugPanel;
@@ -1024,11 +1033,21 @@ public static class SharePhotonSharedMRSceneConfigurator
             manager,
             manager.LeaveRoom,
             nameof(PhotonSharedMRButtonCollection.LeaveRoom));
+        AddPersistentListenerIfMissing(
+            connectionButton,
+            loginVisibilityController,
+            loginVisibilityController.Open,
+            nameof(PhotonSharedMRLoginPanelVisibilityController.Open));
         AddPersistentStatefulListenerIfMissing(
             manager.leaveRoomButtonObject,
             manager,
             manager.LeaveRoom,
             nameof(PhotonSharedMRButtonCollection.LeaveRoom));
+        AddPersistentStatefulListenerIfMissing(
+            manager.connectionButtonObject,
+            loginVisibilityController,
+            loginVisibilityController.Open,
+            nameof(PhotonSharedMRLoginPanelVisibilityController.Open));
 
         EditorUtility.SetDirty(collection);
         Debug.Log("[SharePhotonSharedMRSceneConfigurator] Created PhotonButtonCollection from "
@@ -1402,6 +1421,14 @@ public static class SharePhotonSharedMRSceneConfigurator
         AddPersistentListenerIfMissing(loginPanel.roverRobotButton, loginPanel, loginPanel.SelectRoverRobot, nameof(PhotonSharedMRLoginPanel.SelectRoverRobot));
         AddPersistentListenerIfMissing(loginPanel.droneRobotButton, loginPanel, loginPanel.SelectDroneRobot, nameof(PhotonSharedMRLoginPanel.SelectDroneRobot));
         AddPersistentListenerIfMissing(loginPanel.observerRobotButton, loginPanel, loginPanel.SelectObserverRobot, nameof(PhotonSharedMRLoginPanel.SelectObserverRobot));
+        if (loginPanel.visibilityController != null)
+        {
+            AddPersistentListenerIfMissing(
+                loginPanel.closeButton,
+                loginPanel.visibilityController,
+                loginPanel.visibilityController.Close,
+                nameof(PhotonSharedMRLoginPanelVisibilityController.Close));
+        }
     }
 
     private static void AddPersistentListenerIfMissing(Button button, Object target, UnityAction action, string methodName)

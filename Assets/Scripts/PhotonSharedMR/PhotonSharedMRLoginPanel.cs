@@ -49,6 +49,8 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
     public Button observerRobotButton;
     public Button startButton;
     public Button retryButton;
+    public Button closeButton;
+    public PhotonSharedMRLoginPanelVisibilityController visibilityController;
     public TMP_Text selectionText;
     public TMP_Text protocolText;
     public TMP_Text fixedRegionText;
@@ -120,7 +122,7 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
         PhotonSharedMRSessionSettings settings = CollectSettingsFromUi();
         if (!IsPcAutoObserverRuntime() && !hasSelectedRobot)
         {
-            SetError("操作ロボットを選択してください。");
+            SetError("Please select a robot target.");
             RefreshSelectionVisuals();
             return;
         }
@@ -242,7 +244,7 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
     {
         enableRuntimePanel = true;
         EnsurePanel();
-        SetPanelVisible(true);
+        ShowLoginPanelContent();
         ApplyOpenPose(Camera.main != null ? Camera.main.transform : null);
         SetStartInteractable(!startRequested && !IsJoined());
         RefreshStatusText(true);
@@ -252,7 +254,7 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
     {
         enableRuntimePanel = true;
         EnsurePanel();
-        SetPanelVisible(true);
+        ShowLoginPanelContent();
         ApplyOpenPose(head);
         SetStartInteractable(!startRequested && !IsJoined());
         RefreshStatusText(true);
@@ -260,6 +262,13 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
 
     public void CloseLoginPanel()
     {
+        EnsureVisibilityController();
+        if (visibilityController != null)
+        {
+            visibilityController.Close();
+            return;
+        }
+
         SetPanelVisible(false);
     }
 
@@ -273,6 +282,16 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
             {
                 canvas.worldCamera = Camera.main;
             }
+        }
+    }
+
+    private void ShowLoginPanelContent()
+    {
+        SetPanelVisible(true);
+        EnsureVisibilityController();
+        if (visibilityController != null)
+        {
+            visibilityController.Open();
         }
     }
 
@@ -451,8 +470,9 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
         Image panelImage = panel.GetComponent<Image>();
         panelImage.color = new Color(0.03f, 0.06f, 0.08f, 0.94f);
 
-        CreateLabel(panel.transform, "Title", "Photon Shared MR", 30, new Vector2(0f, 248f), new Vector2(460f, 48f), FontStyles.Bold);
-        selectionText = CreateLabel(panel.transform, "RobotSelectionLabel", "操作ロボットを選択", 22, new Vector2(0f, 194f), new Vector2(460f, 36f), FontStyles.Normal);
+        CreateLabel(panel.transform, "Title", "Photon Shared MR", 30, new Vector2(-50f, 248f), new Vector2(350f, 48f), FontStyles.Bold);
+        closeButton = CreateButton(panel.transform, "CloseLoginPanelButton", "Close", new Vector2(195f, 274f), new Vector2(110f, 48f));
+        selectionText = CreateLabel(panel.transform, "RobotSelectionLabel", "Select Robot Target", 22, new Vector2(0f, 194f), new Vector2(460f, 36f), FontStyles.Normal);
 
         amirRobotButton = CreateButton(panel.transform, "AmirButton", "AMIR", new Vector2(-118f, 128f));
         roverRobotButton = CreateButton(panel.transform, "RoverButton", "Rover", new Vector2(118f, 128f));
@@ -461,7 +481,7 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
 
         protocolText = CreateLabel(panel.transform, "ProtocolText", "Room: SHARE-MR-Room", 16, new Vector2(0f, 2f), new Vector2(430f, 24f), FontStyles.Normal);
         fixedRegionText = CreateLabel(panel.transform, "FixedRegionText", "Mode: AutoHostOrClient", 16, new Vector2(0f, -26f), new Vector2(430f, 24f), FontStyles.Normal);
-        startButton = CreateButton(panel.transform, "StartButton", "共有空間に参加", new Vector2(0f, -98f));
+        startButton = CreateButton(panel.transform, "StartButton", "Join Room", new Vector2(0f, -98f));
         statusText = CreateLabel(panel.transform, "StatusText", "Connection Status: NotStarted", 17, new Vector2(0f, -176f), new Vector2(460f, 58f), FontStyles.Normal);
         errorText = CreateLabel(panel.transform, "LastErrorText", "Last Error: None", 16, new Vector2(0f, -250f), new Vector2(460f, 58f), FontStyles.Normal);
         errorText.color = new Color(1f, 0.55f, 0.45f, 1f);
@@ -502,6 +522,7 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
         observerRobotButton = FindChildComponent<Button>("ObserverButton");
         startButton = FindChildComponent<Button>("StartButton");
         retryButton = FindChildComponent<Button>("RetryButton");
+        closeButton = FindChildComponent<Button>("CloseLoginPanelButton");
         selectionText = FindChildComponent<TMP_Text>("RobotSelectionLabel");
         protocolText = FindChildComponent<TMP_Text>("ProtocolText");
         fixedRegionText = FindChildComponent<TMP_Text>("FixedRegionText");
@@ -523,6 +544,7 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
             && droneRobotButton != null
             && observerRobotButton != null
             && startButton != null
+            && closeButton != null
             && selectionText != null
             && protocolText != null
             && fixedRegionText != null
@@ -538,6 +560,11 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
         WireButton(droneRobotButton, SelectDroneRobot, nameof(SelectDroneRobot));
         WireButton(observerRobotButton, SelectObserverRobot, nameof(SelectObserverRobot));
         WireButton(retryButton, RetrySessionFromUi, nameof(RetrySessionFromUi));
+        EnsureVisibilityController();
+        if (visibilityController != null)
+        {
+            WireButton(closeButton, visibilityController.Close, nameof(PhotonSharedMRLoginPanelVisibilityController.Close));
+        }
 
         RefreshSelectionVisuals();
     }
@@ -655,8 +682,8 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
         if (selectionText != null)
         {
             selectionText.text = hasSelectedRobot
-                ? "操作ロボット: " + selectedRobotTarget
-                : "操作ロボットを選択";
+                ? "Robot Target: " + selectedRobotTarget
+                : "Select Robot Target";
         }
 
         if (selectionText != null && IsPcAutoObserverRuntime())
@@ -1012,9 +1039,14 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
 
     private static Button CreateButton(Transform parent, string objectName, string text, Vector2 anchoredPosition)
     {
+        return CreateButton(parent, objectName, text, anchoredPosition, new Vector2(210f, 54f));
+    }
+
+    private static Button CreateButton(Transform parent, string objectName, string text, Vector2 anchoredPosition, Vector2 size)
+    {
         GameObject buttonObject = CreateUiObject(objectName, parent, typeof(Image), typeof(Button));
         RectTransform rect = buttonObject.GetComponent<RectTransform>();
-        ConfigureCenteredRect(rect, anchoredPosition, new Vector2(210f, 54f));
+        ConfigureCenteredRect(rect, anchoredPosition, size);
 
         Image image = buttonObject.GetComponent<Image>();
         image.color = new Color(0.05f, 0.34f, 0.42f, 0.98f);
@@ -1027,8 +1059,24 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
         colors.selectedColor = colors.highlightedColor;
         button.colors = colors;
 
-        CreateLabel(buttonObject.transform, "Label", text, 23, Vector2.zero, new Vector2(200f, 48f), FontStyles.Bold);
+        CreateLabel(buttonObject.transform, "Label", text, 23, Vector2.zero, size - new Vector2(10f, 6f), FontStyles.Bold);
         return button;
+    }
+
+    private void EnsureVisibilityController()
+    {
+        if (visibilityController == null)
+        {
+            visibilityController = GetComponent<PhotonSharedMRLoginPanelVisibilityController>();
+        }
+
+        if (visibilityController == null)
+        {
+            visibilityController = gameObject.AddComponent<PhotonSharedMRLoginPanelVisibilityController>();
+        }
+
+        GameObject loginPanelObject = FindChild(panelRoot != null ? panelRoot.transform : null, PanelObjectName);
+        visibilityController.SetTargets(loginPanelObject, panelRoot);
     }
 
     private static TMP_Text CreateLabel(Transform parent, string objectName, string text, int fontSize, Vector2 anchoredPosition, Vector2 size, FontStyles style)

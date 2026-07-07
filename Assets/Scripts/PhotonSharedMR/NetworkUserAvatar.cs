@@ -108,6 +108,7 @@ public class NetworkUserAvatar :
     private readonly bool[] warnedMissingFingerTipWhileHandTracked = new bool[NetworkUserAvatarFingerTipCount];
     private Transform[] fingerTipVisuals;
     private bool fingerTipSyncReadyLogged;
+    private bool rightIndexVisualInitializedLogged;
     private bool networkStateReady;
     private bool pcObserverCameraMissingLogged;
     private bool avatarPoseSourceLogged;
@@ -668,7 +669,10 @@ public class NetworkUserAvatar :
                 fingerTipVisuals[i] = CreateFingerTipVisual(root, i);
             }
 
-            fingerTipVisuals[i].localScale = Vector3.one * Mathf.Max(0.001f, fingerTipVisualScale);
+            fingerTipVisuals[i].localScale = GetLocalScaleForWorldSize(
+                fingerTipVisuals[i].parent,
+                Mathf.Max(0.001f, fingerTipVisualScale));
+            LogRightIndexVisualInitializedOnce(fingerTipVisuals[i], i);
         }
 
         if (!fingerTipSyncReadyLogged)
@@ -688,7 +692,7 @@ public class NetworkUserAvatar :
         GameObject visual = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         visual.name = FingerTipNames[index];
         visual.transform.SetParent(root, false);
-        visual.transform.localScale = Vector3.one * Mathf.Max(0.001f, fingerTipVisualScale);
+        visual.transform.localScale = GetLocalScaleForWorldSize(root, Mathf.Max(0.001f, fingerTipVisualScale));
 
         Collider visualCollider = visual.GetComponent<Collider>();
         if (visualCollider != null)
@@ -704,6 +708,59 @@ public class NetworkUserAvatar :
         }
 
         return visual.transform;
+    }
+
+    private void LogRightIndexVisualInitializedOnce(Transform visual, int index)
+    {
+        if (rightIndexVisualInitializedLogged || index != 6 || visual == null)
+        {
+            return;
+        }
+
+        rightIndexVisualInitializedLogged = true;
+        Debug.Log("[PhotonHandVisual] Right index visual initialized:"
+            + "\nobject=" + visual.name
+            + "\npath=" + GetHierarchyPath(visual)
+            + "\nlocalScale=" + visual.localScale.ToString("F4")
+            + "\nlossyScale=" + visual.lossyScale.ToString("F4")
+            + "\nisLocal=" + IsLocalUser);
+    }
+
+    private static Vector3 GetLocalScaleForWorldSize(Transform parent, float worldSize)
+    {
+        if (parent == null)
+        {
+            return Vector3.one * worldSize;
+        }
+
+        Vector3 parentScale = parent.lossyScale;
+        return new Vector3(
+            worldSize * SafeInverseScale(parentScale.x),
+            worldSize * SafeInverseScale(parentScale.y),
+            worldSize * SafeInverseScale(parentScale.z));
+    }
+
+    private static float SafeInverseScale(float value)
+    {
+        return Mathf.Abs(value) > 0.0001f ? 1f / value : 1f;
+    }
+
+    private static string GetHierarchyPath(Transform target)
+    {
+        if (target == null)
+        {
+            return "null";
+        }
+
+        string path = target.name;
+        Transform current = target.parent;
+        while (current != null)
+        {
+            path = current.name + "/" + path;
+            current = current.parent;
+        }
+
+        return path;
     }
 
     private Transform CreatePrimitiveVisual(string visualName, PrimitiveType primitiveType, Vector3 localScale, Color color)

@@ -1,7 +1,9 @@
 using System.Collections;
+using System.Collections.Generic;
 using MixedReality.Toolkit;
 using MixedReality.Toolkit.Input;
 using MixedReality.Toolkit.Subsystems;
+using TMPro;
 using UnityEngine;
 using Unity.Robotics.ROSTCPConnector;
 using UnityEngine.XR;
@@ -19,8 +21,9 @@ public class handPosePublisher : MonoBehaviour
     private const string PalmPoseWorldTopic = "/palm_pose_world";
     private const string PalmPoseWorldDiagTopic = "/palm_pose_world_diag";
     private const string PalmPoseWorldDiagFrameId = "palm_pose_world_diag";
+    private const string PrimaryPalmPoseTopic = "/palm_pose";
 
-    [SerializeField] private string topicName = "/palm_pose";
+    [SerializeField] private string topicName = PrimaryPalmPoseTopic;
     [SerializeField] private string frameId = "amir_base";
     [SerializeField] private string hmdRelativeTopicName = "/palm_pose_hmd_relative";
     [SerializeField] private string hmdRelativeFrameId = "hmd";
@@ -29,6 +32,19 @@ public class handPosePublisher : MonoBehaviour
     [SerializeField, Min(0.1f)] private float publishHz = 30f;
     [SerializeField, Min(0f)] private float lostThresholdSec = 1.0f;
     [SerializeField] private bool useRosCoordinateConversion = true;
+    [SerializeField] private bool publishEnabled;
+    [SerializeField, Min(0.1f)] private float publishStartDelaySec = 3.0f;
+    [SerializeField, Min(1f)] private float controlPublishRateHz = 60.0f;
+    [SerializeField, Min(1f)] private float diagnosticPublishRateHz = 10.0f;
+    [SerializeField] private Transform hmdTransform;
+    [SerializeField] private GameObject publishStartGuideSpherePrefab;
+    [SerializeField, Min(0.01f)] private float publishStartGuideSphereDiameterM = 0.05f;
+    [SerializeField] private GameObject publishStartCountdownPrefab;
+    [SerializeField, Min(0.1f)] private float countdownDistanceFromHmdM = 0.60f;
+    [SerializeField] private Vector3 countdownLocalOffset = new Vector3(0f, -0.12f, 0f);
+
+    public static handPosePublisher ActiveInstance { get; private set; }
+    public static handPosePublisher LastPublishCandidate { get; private set; }
 
     public handTracking handTracking;
     public int publishCount;
@@ -70,6 +86,8 @@ public class handPosePublisher : MonoBehaviour
     private bool loggedLeftHandOnlyMode;
     private bool loggedPalmPoseWorldActive;
     private bool loggedRecalibrationRequired;
+    private bool loggedMultipleInstanceWarning;
+    private readonly HashSet<string> loggedPublishDisabledTopics = new HashSet<string>();
     private bool hasLastPalmWorldPosition;
     private bool isLeftPalmTracked;
     private bool hasAbsoluteCalibrationCenter;
@@ -79,6 +97,10 @@ public class handPosePublisher : MonoBehaviour
     private Vector3 palmHmdAnchorLocal;
     private Transform cachedHmdTransform;
     private Coroutine palmPoseWorldDiagCoroutine;
+    private Coroutine publishStartDelayCoroutine;
+    private GameObject publishStartGuideSphere;
+    private GameObject publishStartCountdown;
+    private TMP_Text publishStartCountdownText;
 
     public bool HasLastPalmWorldPosition => hasLastPalmWorldPosition;
     public Vector3 LastPalmWorldPosition => lastPalmWorldPosition;
@@ -89,9 +111,96 @@ public class handPosePublisher : MonoBehaviour
     public bool IsWorldPosePublishing => isActiveAndEnabled && worldPosePublishCount > 0;
     public int WorldPublishCount => worldPosePublishCount;
     public bool IsPublisherComponentEnabled => isActiveAndEnabled;
+    public bool IsPublishStartPending { get; private set; }
+    public bool PublishEnabled
+    {
+        get => publishEnabled;
+        set => SetPublishEnabled(value);
+    }
+
+    public void SetPublishEnabled(bool enabled)
+    {
+        bool changed = publishEnabled != enabled;
+        publishEnabled = enabled;
+        if (publishEnabled && !this.enabled)
+        {
+            this.enabled = true;
+        }
+
+        if (changed)
+        {
+            loggedPublishDisabledTopics.Clear();
+        }
+
+        Debug.Log("[handPosePublisher] PublishEnabled changed:"
+            + "\nsender=" + name
+            + "\npath=" + GetHierarchyPath(transform)
+            + "\nprimaryTopic=" + GetPrimaryPalmPoseTopicName()
+            + "\nvalue=" + publishEnabled
+            + "\nlastCandidate=" + (LastPublishCandidate != null ? LastPublishCandidate.name : "<null>"));
+    }
+
+    public void TogglePublishEnabled()
+    {
+        SetPublishEnabled(!publishEnabled);
+    }
+
+    public void BeginLeftPalmPosePublishWithDelay()
+    {
+        if (!Application.isPlaying)
+        {
+            SetPublishEnabled(true);
+            return;
+        }
+
+        if (!this.enabled)
+        {
+            this.enabled = true;
+        }
+
+        StopPublishStartDelayCoroutine();
+        SetPublishEnabled(false);
+        loggedPublishDisabledTopics.Clear();
+
+        if (!TryResolvePublishStartHmdTransform(out Transform startHmdTransform))
+        {
+            IsPublishStartPending = false;
+            Debug.LogError("[handPosePublisher] Cannot begin PalmPose publish start delay: HMD transform was not found. "
+                + "sender=" + name
+                + " path=" + GetHierarchyPath(transform));
+            return;
+        }
+
+        IsPublishStartPending = true;
+        Vector3 guidePosition = GetPublishStartGuidePosition(startHmdTransform);
+        ShowPublishStartGuideSphere(guidePosition);
+        ShowPublishStartCountdown(startHmdTransform);
+        UpdatePublishStartCountdown(publishStartDelaySec);
+        Debug.Log("[handPosePublisher] PalmPose publish start pending:"
+            + "\nsender=" + name
+            + "\npath=" + GetHierarchyPath(transform)
+            + "\ndelaySec=" + publishStartDelaySec.ToString("F1")
+            + "\nguidePosition=" + guidePosition.ToString("F3"));
+
+        publishStartDelayCoroutine = StartCoroutine(BeginLeftPalmPosePublishAfterDelay());
+    }
+
+    public void StopLeftPalmPosePublish()
+    {
+        StopPublishStartDelayCoroutine();
+        IsPublishStartPending = false;
+        SetPublishEnabled(false);
+        loggedPublishDisabledTopics.Clear();
+        HidePublishStartGuideSphere();
+        HidePublishStartCountdown();
+        Debug.Log("[handPosePublisher] PalmPose publish stopped:"
+            + "\nsender=" + name
+            + "\npath=" + GetHierarchyPath(transform));
+    }
 
     private void Awake()
     {
+        RegisterActiveInstance();
         EnsurePalmPoseWorldTopicName();
         LogPalmPoseWorldActiveOnce();
         InitializeMessage();
@@ -127,6 +236,47 @@ public class handPosePublisher : MonoBehaviour
             StopCoroutine(palmPoseWorldDiagCoroutine);
             palmPoseWorldDiagCoroutine = null;
         }
+
+        StopPublishStartDelayCoroutine();
+        HidePublishStartGuideSphere();
+        HidePublishStartCountdown();
+    }
+
+    private void RegisterActiveInstance()
+    {
+        if (ActiveInstance == null)
+        {
+            ActiveInstance = this;
+            Debug.Log("[handPosePublisher] ActiveInstance registered: " + name
+                + " path=" + GetHierarchyPath(transform));
+            if (FindObjectsOfType<handPosePublisher>(true).Length > 1)
+            {
+                LogMultipleInstanceWarning();
+            }
+
+            return;
+        }
+
+        LogMultipleInstanceWarning();
+    }
+
+    private void LogMultipleInstanceWarning()
+    {
+        if (loggedMultipleInstanceWarning)
+        {
+            return;
+        }
+
+        loggedMultipleInstanceWarning = true;
+        Debug.LogWarning("[handPosePublisher] Multiple handPosePublisher instances detected: "
+            + "self=" + name
+            + " selfPath=" + GetHierarchyPath(transform)
+            + " selfEnabled=" + enabled
+            + " selfActiveInHierarchy=" + gameObject.activeInHierarchy
+            + " active=" + (ActiveInstance != null ? ActiveInstance.name : "<null>")
+            + " activePath=" + (ActiveInstance != null ? GetHierarchyPath(ActiveInstance.transform) : "<null>")
+            + " activeEnabled=" + (ActiveInstance != null ? ActiveInstance.enabled.ToString() : "<null>")
+            + " activeInHierarchy=" + (ActiveInstance != null ? ActiveInstance.gameObject.activeInHierarchy.ToString() : "<null>"));
     }
 
     private void Start()
@@ -139,19 +289,16 @@ public class handPosePublisher : MonoBehaviour
         EnsurePalmPoseWorldDiagCoroutine();
     }
 
-    private void FixedUpdate()
-    {
-        if (Time.time < nextPublishTime) return;
-
-        float interval = 1f / Mathf.Max(0.1f, publishHz);
-        nextPublishTime = Time.time + interval;
-
-        PublishHandPose();
-    }
-
     private void Update()
     {
-        PublishPalmPoseWorldDiag();
+        if (Time.time < nextPublishTime)
+        {
+            return;
+        }
+
+        float interval = 1f / Mathf.Max(1f, controlPublishRateHz);
+        nextPublishTime = Time.time + interval;
+        PublishHandPose();
     }
 
     private void EnsurePalmPoseWorldDiagCoroutine()
@@ -166,17 +313,178 @@ public class handPosePublisher : MonoBehaviour
 
     private IEnumerator PublishPalmPoseWorldDiagLoop()
     {
-        WaitForSeconds wait = new WaitForSeconds(PalmPoseWorldDiagnosticInterval);
         while (true)
         {
             PublishPalmPoseWorldDiag();
-            yield return wait;
+            yield return new WaitForSecondsRealtime(1f / Mathf.Max(1f, diagnosticPublishRateHz));
         }
+    }
+
+    private IEnumerator BeginLeftPalmPosePublishAfterDelay()
+    {
+        float endTime = Time.unscaledTime + publishStartDelaySec;
+        while (Time.unscaledTime < endTime)
+        {
+            UpdatePublishStartCountdown(Mathf.Max(0f, endTime - Time.unscaledTime));
+            yield return null;
+        }
+
+        publishStartDelayCoroutine = null;
+        HidePublishStartGuideSphere();
+        HidePublishStartCountdown();
+        IsPublishStartPending = false;
+        nextPublishTime = 0f;
+        SetPublishEnabled(true);
+        Debug.Log("[handPosePublisher] PalmPose publish started:"
+            + "\nsender=" + name
+            + "\npath=" + GetHierarchyPath(transform)
+            + "\nrateHz=" + controlPublishRateHz.ToString("F1"));
+    }
+
+    private void StopPublishStartDelayCoroutine()
+    {
+        if (publishStartDelayCoroutine == null)
+        {
+            return;
+        }
+
+        StopCoroutine(publishStartDelayCoroutine);
+        publishStartDelayCoroutine = null;
+    }
+
+    private bool TryResolvePublishStartHmdTransform(out Transform resolvedHmdTransform)
+    {
+        resolvedHmdTransform = hmdTransform;
+        if (resolvedHmdTransform != null)
+        {
+            return true;
+        }
+
+        if (Camera.main != null)
+        {
+            resolvedHmdTransform = Camera.main.transform;
+            return true;
+        }
+
+        return false;
+    }
+
+    private Vector3 GetPublishStartGuidePosition(Transform startHmdTransform)
+    {
+        Vector3 horizontalForward = Vector3.ProjectOnPlane(startHmdTransform.forward, Vector3.up).normalized;
+        if (horizontalForward.sqrMagnitude < 0.0001f)
+        {
+            horizontalForward = Vector3.forward;
+        }
+
+        return startHmdTransform.position
+            + Vector3.down * 0.15f
+            + horizontalForward * 0.10f;
+    }
+
+    private void ShowPublishStartGuideSphere(Vector3 guidePosition)
+    {
+        HidePublishStartGuideSphere();
+
+        publishStartGuideSphere = publishStartGuideSpherePrefab != null
+            ? Instantiate(publishStartGuideSpherePrefab)
+            : GameObject.CreatePrimitive(PrimitiveType.Sphere);
+
+        publishStartGuideSphere.name = "PalmPosePublishStartGuide";
+        publishStartGuideSphere.transform.position = guidePosition;
+        publishStartGuideSphere.transform.localScale = Vector3.one * publishStartGuideSphereDiameterM;
+
+        foreach (Collider guideCollider in publishStartGuideSphere.GetComponentsInChildren<Collider>(true))
+        {
+            guideCollider.enabled = false;
+        }
+    }
+
+    private void HidePublishStartGuideSphere()
+    {
+        if (publishStartGuideSphere == null)
+        {
+            return;
+        }
+
+        Destroy(publishStartGuideSphere);
+        publishStartGuideSphere = null;
+    }
+
+    private void ShowPublishStartCountdown(Transform countdownHmdTransform)
+    {
+        HidePublishStartCountdown();
+
+        publishStartCountdown = publishStartCountdownPrefab != null
+            ? Instantiate(publishStartCountdownPrefab)
+            : CreateDefaultPublishStartCountdown();
+
+        publishStartCountdown.name = "PalmPosePublishStartCountdown";
+        publishStartCountdown.transform.SetParent(countdownHmdTransform, false);
+        publishStartCountdown.transform.localPosition = countdownLocalOffset + Vector3.forward * countdownDistanceFromHmdM;
+        publishStartCountdown.transform.localRotation = Quaternion.identity;
+        publishStartCountdown.transform.localScale = publishStartCountdownPrefab != null
+            ? publishStartCountdown.transform.localScale
+            : Vector3.one * 0.001f;
+
+        publishStartCountdownText = publishStartCountdown.GetComponentInChildren<TMP_Text>(true);
+        if (publishStartCountdownText != null)
+        {
+            publishStartCountdownText.raycastTarget = false;
+        }
+    }
+
+    private GameObject CreateDefaultPublishStartCountdown()
+    {
+        GameObject canvasObject = new GameObject("PalmPosePublishStartCountdownCanvas");
+        Canvas canvas = canvasObject.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.WorldSpace;
+
+        RectTransform canvasRect = canvasObject.GetComponent<RectTransform>();
+        canvasRect.sizeDelta = new Vector2(420f, 160f);
+
+        GameObject textObject = new GameObject("CountdownText");
+        textObject.transform.SetParent(canvasObject.transform, false);
+        TextMeshProUGUI text = textObject.AddComponent<TextMeshProUGUI>();
+        text.alignment = TextAlignmentOptions.Center;
+        text.fontSize = 38f;
+        text.color = Color.white;
+        text.raycastTarget = false;
+
+        RectTransform textRect = textObject.GetComponent<RectTransform>();
+        textRect.anchorMin = Vector2.zero;
+        textRect.anchorMax = Vector2.one;
+        textRect.offsetMin = Vector2.zero;
+        textRect.offsetMax = Vector2.zero;
+
+        return canvasObject;
+    }
+
+    private void UpdatePublishStartCountdown(float remainingSec)
+    {
+        if (publishStartCountdownText == null)
+        {
+            return;
+        }
+
+        publishStartCountdownText.text = "Left Hand Control Starts In\n" + remainingSec.ToString("F1") + " s";
+    }
+
+    private void HidePublishStartCountdown()
+    {
+        publishStartCountdownText = null;
+        if (publishStartCountdown == null)
+        {
+            return;
+        }
+
+        Destroy(publishStartCountdown);
+        publishStartCountdown = null;
     }
 
     private void OnValidate()
     {
-        if (string.IsNullOrWhiteSpace(topicName)) topicName = "/palm_pose";
+        if (string.IsNullOrWhiteSpace(topicName)) topicName = PrimaryPalmPoseTopic;
         if (string.IsNullOrWhiteSpace(frameId)) frameId = "amir_base";
         if (string.IsNullOrWhiteSpace(hmdRelativeTopicName)) hmdRelativeTopicName = "/palm_pose_hmd_relative";
         if (string.IsNullOrWhiteSpace(hmdRelativeFrameId)) hmdRelativeFrameId = "hmd";
@@ -184,6 +492,11 @@ public class handPosePublisher : MonoBehaviour
         if (string.IsNullOrWhiteSpace(worldFrameId)) worldFrameId = "unity_world";
         publishHz = Mathf.Max(0.1f, publishHz);
         lostThresholdSec = Mathf.Max(0f, lostThresholdSec);
+        publishStartDelaySec = Mathf.Max(0.1f, publishStartDelaySec);
+        controlPublishRateHz = Mathf.Max(1f, controlPublishRateHz);
+        diagnosticPublishRateHz = Mathf.Max(1f, diagnosticPublishRateHz);
+        publishStartGuideSphereDiameterM = Mathf.Max(0.01f, publishStartGuideSphereDiameterM);
+        countdownDistanceFromHmdM = Mathf.Max(0.1f, countdownDistanceFromHmdM);
     }
 
     private void InitializeMessage()
@@ -287,6 +600,11 @@ public class handPosePublisher : MonoBehaviour
         publishHandPoseCalled = true;
         LogPalmPoseWorldPublishHandPoseHeartbeat();
         EnsurePublisher();
+        if (!CanPublishLeftPalmPose(topicName))
+        {
+            return;
+        }
+
         RosTime stamp = GetRosTime();
         PublishWorldPose(stamp);
 
@@ -373,6 +691,11 @@ public class handPosePublisher : MonoBehaviour
         hmdRelativeMessage.pose.orientation.z = 0.0;
         hmdRelativeMessage.pose.orientation.w = 1.0;
 
+        if (!CanPublishLeftPalmPose(hmdRelativeTopicName))
+        {
+            return;
+        }
+
         ros.Publish(hmdRelativeTopicName, hmdRelativeMessage);
         hmdRelativePublishCount++;
         lastPalmHmdDelta = palmHmdDelta;
@@ -415,6 +738,11 @@ public class handPosePublisher : MonoBehaviour
         worldMessage.pose.orientation.z = 0.0;
         worldMessage.pose.orientation.w = 1.0;
 
+        if (!CanPublishLeftPalmPose(PalmPoseWorldTopic))
+        {
+            return;
+        }
+
         ros.Publish(PalmPoseWorldTopic, worldMessage);
         worldPosePublishCount++;
         lastPalmWorldPosition = palmWorldPosition;
@@ -435,12 +763,12 @@ public class handPosePublisher : MonoBehaviour
         }
 
         EnsurePublisher();
-        if (Time.time < nextPalmPoseWorldDiagPublishTime)
+        if (Time.unscaledTime < nextPalmPoseWorldDiagPublishTime)
         {
             return;
         }
 
-        nextPalmPoseWorldDiagPublishTime = Time.time + PalmPoseWorldDiagnosticInterval;
+        nextPalmPoseWorldDiagPublishTime = Time.unscaledTime + (1f / Mathf.Max(1f, diagnosticPublishRateHz));
         if (ros == null)
         {
             return;
@@ -460,6 +788,11 @@ public class handPosePublisher : MonoBehaviour
         palmPoseWorldDiagMessage.pose.orientation.y = isActiveAndEnabled ? 1.0 : 0.0;
         palmPoseWorldDiagMessage.pose.orientation.z = ros != null ? 1.0 : 0.0;
         palmPoseWorldDiagMessage.pose.orientation.w = worldPosePublishCount;
+
+        if (!CanPublishLeftPalmPose(PalmPoseWorldDiagTopic))
+        {
+            return;
+        }
 
         ros.Publish(PalmPoseWorldDiagTopic, palmPoseWorldDiagMessage);
         palmPoseWorldDiagPublishCount++;
@@ -580,6 +913,41 @@ public class handPosePublisher : MonoBehaviour
 
         nextPalmPoseWorldTryGetFailureLogTime = Time.time + PalmPoseWorldDiagnosticInterval;
         Debug.LogWarning("[PalmPoseWorld] TryGetLeftPalm failed: " + reason);
+    }
+
+    private bool CanPublishLeftPalmPose(string topicName)
+    {
+        handPosePublisher previousCandidate = LastPublishCandidate;
+        LastPublishCandidate = this;
+        if (previousCandidate != this)
+        {
+            Debug.Log("[handPosePublisher] LastPublishCandidate updated: sender=" + name
+                + " path=" + GetHierarchyPath(transform)
+                + " topic=" + topicName);
+        }
+
+        if (publishEnabled && !IsPublishStartPending)
+        {
+            return true;
+        }
+
+        if (topicName == PalmPoseWorldDiagTopic)
+        {
+            return false;
+        }
+
+        if (Application.isPlaying && !loggedPublishDisabledTopics.Contains(topicName))
+        {
+            loggedPublishDisabledTopics.Add(topicName);
+            Debug.Log("[handPosePublisher] Skip publish: sender=" + name
+                + " path=" + GetHierarchyPath(transform)
+                + " topic=" + topicName
+                + " primaryTopic=" + GetPrimaryPalmPoseTopicName()
+                + " PublishEnabled=" + publishEnabled
+                + " pending=" + IsPublishStartPending);
+        }
+
+        return false;
     }
 
     private bool TryConfirmLeftHandTracked()
@@ -722,6 +1090,11 @@ public class handPosePublisher : MonoBehaviour
 
     private Transform GetHmdTransform()
     {
+        if (hmdTransform != null && hmdTransform.gameObject.activeInHierarchy)
+        {
+            return hmdTransform;
+        }
+
         if (cachedHmdTransform != null && cachedHmdTransform.gameObject.activeInHierarchy)
         {
             return cachedHmdTransform;
@@ -868,6 +1241,29 @@ public class handPosePublisher : MonoBehaviour
             sec = seconds,
             nanosec = nanoseconds
         };
+    }
+
+    private string GetPrimaryPalmPoseTopicName()
+    {
+        return string.IsNullOrWhiteSpace(topicName) ? PrimaryPalmPoseTopic : topicName;
+    }
+
+    private static string GetHierarchyPath(Transform target)
+    {
+        if (target == null)
+        {
+            return "<null>";
+        }
+
+        string path = target.name;
+        Transform parent = target.parent;
+        while (parent != null)
+        {
+            path = parent.name + "/" + path;
+            parent = parent.parent;
+        }
+
+        return path;
     }
 
     private void SetGeometryPoint(Vector3 position, RosPoint geometryPoint)
