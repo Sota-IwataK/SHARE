@@ -12,6 +12,7 @@ using UnityEngine.XR;
 public class RightHandMecanumControl : MonoBehaviour
 {
     private const float PublisherRegistrationSettleSeconds = 0.5f;
+    private const bool ShowLegacyPopup = false;
 
     private enum MecanumState
     {
@@ -34,13 +35,21 @@ public class RightHandMecanumControl : MonoBehaviour
     [SerializeField] private bool useMrtkHandFallback = true;
     [SerializeField] private bool useControllerGripFallback = true;
     [SerializeField] private float ovrGripStrengthThreshold = 0.75f;
+    [SerializeField] private float ovrGripReleaseThreshold = 0.55f;
     [SerializeField] private float controllerGripThreshold = 0.75f;
+    [SerializeField] private float controllerGripReleaseThreshold = 0.55f;
     [SerializeField] private float mrtkFingerToPalmClosedDistance = 0.095f;
+    [SerializeField] private float mrtkFingerToPalmOpenDistance = 0.120f;
     [SerializeField] private int mrtkClosedFingerCount = 3;
 
     [Header("State Timing")]
     [SerializeField] private float holdSeconds = 3.0f;
     [SerializeField] private float stopPublishSeconds = 0.3f;
+    [SerializeField] private float handLostGraceSec = 0.4f;
+
+    [Header("Diagnostics")]
+    [SerializeField] private bool enableDiagnosticLog = true;
+    [SerializeField] private float diagnosticLogIntervalSec = 0.5f;
 
     [Header("Output Clamp")]
     [SerializeField] private float maxDeltaX = 0.20f;
@@ -61,11 +70,13 @@ public class RightHandMecanumControl : MonoBehaviour
     private MecanumState state = MecanumState.IDLE;
     private ROSConnection ros;
     private string registeredTopic;
+    private string resolvedTopicName;
     private bool publisherRegistered;
     private float publisherReadyRealtime;
     private bool loggedPublishSkippedBeforeRegistration;
     private GameObject popupPanel;
     private bool ownsPopupCanvas;
+    private bool legacyPopupDisabled;
     private Transform cachedCameraTransform;
 
     private Vector3 anchorPosition;
@@ -75,18 +86,32 @@ public class RightHandMecanumControl : MonoBehaviour
     private float nextPublishTime;
     private float nextDebugLogTime;
 
+    private float lastHandSeenTime = -999f;
+    private Vector3 lastValidHandPosition;
+    private Quaternion lastValidHandRotation = Quaternion.identity;
+    private bool hasLastValidHandPose;
+    private bool gestureClosedLatched;
+    private int publishCount;
+    private float lastPublishInterval;
+    private float publishHzWindowStartTime = -1f;
+    private int publishHzWindowStartCount;
+    private float measuredPublishHz;
+    private string lastStateTransitionReason = "None";
+    private string lastPublishSkipReason = "None";
     private float lastHoldTime;
     private bool lastActive;
     private float lastDeltaX;
     private float lastDeltaZ;
     private float lastRollDelta;
     private bool lastHandTracked;
+    private bool lastInputPoseUsable;
     private bool lastCanPublish;
     private float lastPublishTime = -1f;
 
-    public bool IsHandTracked => lastHandTracked;
+    public bool IsHandTracked => lastInputPoseUsable;
     public bool IsGestureHolding => state == MecanumState.RIGHT_HAND_HOLDING;
     public bool IsDriveActive => state == MecanumState.MECANUM_CONTROL;
+    public bool IsCommandActive => lastActive;
     public bool IsPublishing => IsDriveActive
         && lastCanPublish
         && lastPublishTime >= 0f
@@ -146,7 +171,16 @@ public class RightHandMecanumControl : MonoBehaviour
     private void Start()
     {
         EnsurePublisher();
-        EnsurePopup();
+        WarnIfMultipleControllers();
+        if (ShowLegacyPopup)
+        {
+            EnsurePopup();
+        }
+        else
+        {
+            DisableLegacyPopup();
+        }
+
         SetPopupVisible(false, string.Empty);
         PublishMecanumInput(false, 0f, 0f, 0f, true);
     }
@@ -162,8 +196,28 @@ public class RightHandMecanumControl : MonoBehaviour
     private void Update()
     {
         bool hasPose = TryGetRightHandPose(out Vector3 handPosition, out Quaternion handRotation);
+        if (hasPose)
+        {
+            lastHandSeenTime = Time.time;
+            lastValidHandPosition = handPosition;
+            lastValidHandRotation = handRotation;
+            hasLastValidHandPose = true;
+        }
+
+        bool inDriveGrace = state == MecanumState.MECANUM_CONTROL
+            && !hasPose
+            && hasLastValidHandPose
+            && Time.time - lastHandSeenTime <= handLostGraceSec;
+        if (inDriveGrace)
+        {
+            handPosition = lastValidHandPosition;
+            handRotation = lastValidHandRotation;
+        }
+
         lastHandTracked = hasPose;
-        bool handClosed = hasPose && IsRightHandClosed();
+        bool poseAvailableForDrive = hasPose || inDriveGrace;
+        lastInputPoseUsable = poseAvailableForDrive;
+        bool handClosed = poseAvailableForDrive && IsRightHandClosed(hasPose);
         lastHoldTime = state == MecanumState.RIGHT_HAND_HOLDING ? Time.time - holdStartTime : 0f;
 
         switch (state)
@@ -174,7 +228,7 @@ public class RightHandMecanumControl : MonoBehaviour
                 if (handClosed)
                 {
                     holdStartTime = Time.time;
-                    state = MecanumState.RIGHT_HAND_HOLDING;
+                    TransitionTo(MecanumState.RIGHT_HAND_HOLDING, "right_hand_closed");
                 }
                 break;
 
@@ -189,7 +243,7 @@ public class RightHandMecanumControl : MonoBehaviour
                 PublishMecanumInput(false, 0f, 0f, 0f, false);
                 if (lastHoldTime >= holdSeconds)
                 {
-                    state = MecanumState.MOVE_READY_POPUP;
+                    TransitionTo(MecanumState.MOVE_READY_POPUP, "hold_complete");
                 }
                 break;
 
@@ -197,16 +251,19 @@ public class RightHandMecanumControl : MonoBehaviour
                 CaptureAnchor(handPosition, handRotation);
                 SetPopupVisible(true, MoveReadyText);
                 PublishMecanumInput(false, 0f, 0f, 0f, true);
-                state = MecanumState.MECANUM_CONTROL;
+                TransitionTo(MecanumState.MECANUM_CONTROL, "drive_active");
                 break;
 
             case MecanumState.MECANUM_CONTROL:
+                if (!poseAvailableForDrive)
+                {
+                    BeginHandOpenStop("right_hand_lost_grace_timeout");
+                    break;
+                }
+
                 if (!handClosed)
                 {
-                    stopStartTime = Time.time;
-                    state = MecanumState.HAND_OPEN_STOP;
-                    SetPopupVisible(true, StopText);
-                    PublishMecanumInput(false, 0f, 0f, 0f, true);
+                    BeginHandOpenStop(hasPose ? "hand_open_or_grip_released" : "right_hand_lost");
                     break;
                 }
 
@@ -219,7 +276,7 @@ public class RightHandMecanumControl : MonoBehaviour
                 PublishMecanumInput(false, 0f, 0f, 0f, false);
                 if (Time.time - stopStartTime >= stopPublishSeconds)
                 {
-                    state = MecanumState.IDLE;
+                    TransitionTo(MecanumState.IDLE, "stop_publish_complete");
                     SetPopupVisible(false, string.Empty);
                 }
                 break;
@@ -245,9 +302,28 @@ public class RightHandMecanumControl : MonoBehaviour
 
     private void TransitionToIdleWithStop()
     {
-        state = MecanumState.IDLE;
+        TransitionTo(MecanumState.IDLE, "hold_cancelled_or_hand_lost");
         SetPopupVisible(false, string.Empty);
         PublishMecanumInput(false, 0f, 0f, 0f, true);
+    }
+
+    private void BeginHandOpenStop(string reason)
+    {
+        stopStartTime = Time.time;
+        TransitionTo(MecanumState.HAND_OPEN_STOP, reason);
+        SetPopupVisible(true, StopText);
+        PublishMecanumInput(false, 0f, 0f, 0f, true);
+    }
+
+    private void TransitionTo(MecanumState nextState, string reason)
+    {
+        if (state == nextState)
+        {
+            return;
+        }
+
+        state = nextState;
+        lastStateTransitionReason = reason;
     }
 
     private bool TryGetRightHandPose(out Vector3 position, out Quaternion rotation)
@@ -289,7 +365,29 @@ public class RightHandMecanumControl : MonoBehaviour
         return false;
     }
 
-    private bool IsRightHandClosed()
+    private bool IsRightHandClosed(bool hasCurrentHandPose)
+    {
+        if (!hasCurrentHandPose && state == MecanumState.MECANUM_CONTROL)
+        {
+            return gestureClosedLatched;
+        }
+
+        bool hasClosedSignal = TryGetRightHandClosedSignal(gestureClosedLatched, out bool closedSignal);
+        if (hasClosedSignal)
+        {
+            gestureClosedLatched = closedSignal;
+            return gestureClosedLatched;
+        }
+
+        if (state != MecanumState.MECANUM_CONTROL)
+        {
+            gestureClosedLatched = false;
+        }
+
+        return gestureClosedLatched;
+    }
+
+    private bool TryGetRightHandClosedSignal(bool wasClosed, out bool closed)
     {
         if (useOvrHand && rightOvrHand != null && rightOvrHand.IsTracked)
         {
@@ -298,26 +396,33 @@ public class RightHandMecanumControl : MonoBehaviour
                 rightOvrHand.GetFingerPinchStrength(OVRHand.HandFinger.Middle) +
                 rightOvrHand.GetFingerPinchStrength(OVRHand.HandFinger.Ring) +
                 rightOvrHand.GetFingerPinchStrength(OVRHand.HandFinger.Pinky);
-            if (gripStrength * 0.25f >= ovrGripStrengthThreshold)
-            {
-                return true;
-            }
+            float averageGripStrength = gripStrength * 0.25f;
+            closed = wasClosed
+                ? averageGripStrength >= Mathf.Min(ovrGripStrengthThreshold, ovrGripReleaseThreshold)
+                : averageGripStrength >= ovrGripStrengthThreshold;
+            return true;
         }
 
-        if (useMrtkHandFallback && TryGetMrtkClosedHand(out bool mrtkClosed))
+        if (useMrtkHandFallback && TryGetMrtkClosedHand(wasClosed, out bool mrtkClosed))
         {
-            return mrtkClosed;
+            closed = mrtkClosed;
+            return true;
         }
 
         if (useControllerGripFallback)
         {
-            return OVRInput.Get(OVRInput.Axis1D.SecondaryHandTrigger) >= controllerGripThreshold;
+            float grip = OVRInput.Get(OVRInput.Axis1D.SecondaryHandTrigger);
+            closed = wasClosed
+                ? grip >= Mathf.Min(controllerGripThreshold, controllerGripReleaseThreshold)
+                : grip >= controllerGripThreshold;
+            return true;
         }
 
+        closed = false;
         return false;
     }
 
-    private bool TryGetMrtkClosedHand(out bool closed)
+    private bool TryGetMrtkClosedHand(bool wasClosed, out bool closed)
     {
         closed = false;
         var aggregator = XRSubsystemHelpers.HandsAggregator;
@@ -334,7 +439,20 @@ public class RightHandMecanumControl : MonoBehaviour
         CountClosedFinger(TrackedHandJoint.RingTip, palmPose.Position, ref trackedCount, ref closedCount);
         CountClosedFinger(TrackedHandJoint.LittleTip, palmPose.Position, ref trackedCount, ref closedCount);
 
-        closed = trackedCount >= mrtkClosedFingerCount && closedCount >= mrtkClosedFingerCount;
+        if (wasClosed)
+        {
+            int openCount = 0;
+            CountOpenFinger(TrackedHandJoint.IndexTip, palmPose.Position, ref openCount);
+            CountOpenFinger(TrackedHandJoint.MiddleTip, palmPose.Position, ref openCount);
+            CountOpenFinger(TrackedHandJoint.RingTip, palmPose.Position, ref openCount);
+            CountOpenFinger(TrackedHandJoint.LittleTip, palmPose.Position, ref openCount);
+            closed = openCount < mrtkClosedFingerCount;
+        }
+        else
+        {
+            closed = trackedCount >= mrtkClosedFingerCount && closedCount >= mrtkClosedFingerCount;
+        }
+
         return trackedCount > 0;
     }
 
@@ -358,6 +476,24 @@ public class RightHandMecanumControl : MonoBehaviour
         }
     }
 
+    private void CountOpenFinger(
+        TrackedHandJoint joint,
+        Vector3 palmPosition,
+        ref int openCount)
+    {
+        var aggregator = XRSubsystemHelpers.HandsAggregator;
+        if (aggregator == null ||
+            !aggregator.TryGetJoint(joint, XRNode.RightHand, out HandJointPose fingerPose))
+        {
+            return;
+        }
+
+        if (Vector3.Distance(fingerPose.Position, palmPosition) >= mrtkFingerToPalmOpenDistance)
+        {
+            openCount++;
+        }
+    }
+
     private float CalculateRollDeltaRad(Quaternion currentRotation)
     {
         Quaternion localDelta = Quaternion.Inverse(anchorRotation) * currentRotation;
@@ -375,12 +511,14 @@ public class RightHandMecanumControl : MonoBehaviour
     {
         if (!Application.isPlaying || string.IsNullOrWhiteSpace(topicName))
         {
+            lastPublishSkipReason = "not_playing_or_empty_topic";
             return;
         }
 
         float publishInterval = 1f / Mathf.Max(1, publishHz);
         if (!force && Time.time < nextPublishTime)
         {
+            lastPublishSkipReason = "rate_limited";
             return;
         }
 
@@ -406,13 +544,15 @@ public class RightHandMecanumControl : MonoBehaviour
                 active ? 1f : 0f,
                 clampedDeltaX,
                 clampedDeltaZ,
-                clampedRollDelta,
-                Time.time
+                clampedRollDelta
             }
         };
-        ros.Publish(topicName, message);
+        ros.Publish(resolvedTopicName, message);
         nextPublishTime = Time.time + publishInterval;
+        lastPublishInterval = lastPublishTime >= 0f ? Time.time - lastPublishTime : 0f;
         lastPublishTime = Time.time;
+        publishCount++;
+        lastPublishSkipReason = "None";
     }
 
     private void EnsurePublisher()
@@ -423,14 +563,24 @@ public class RightHandMecanumControl : MonoBehaviour
         }
 
         ros ??= ROSConnection.GetOrCreateInstance();
-        if (registeredTopic == topicName && publisherRegistered)
+        if (!RosTopicProvider.TryResolveTopic(
+                RosInputTopicKey.RightHandMecanumInput,
+                topicName,
+                out resolvedTopicName,
+                out _))
+        {
+            publisherRegistered = false;
+            return;
+        }
+
+        if (registeredTopic == resolvedTopicName && publisherRegistered)
         {
             return;
         }
 
         Ros2MessageRegistryCompatibility.EnsureRegistered();
-        ros.RegisterPublisher<Float32MultiArrayMsg>(topicName, queueSize, false);
-        registeredTopic = topicName;
+        ros.RegisterPublisher<Float32MultiArrayMsg>(resolvedTopicName, queueSize, false);
+        registeredTopic = resolvedTopicName;
         publisherRegistered = true;
         publisherReadyRealtime = Time.realtimeSinceStartup + PublisherRegistrationSettleSeconds;
         loggedPublishSkippedBeforeRegistration = false;
@@ -444,18 +594,33 @@ public class RightHandMecanumControl : MonoBehaviour
     {
         if (ros == null || !publisherRegistered)
         {
+            lastCanPublish = false;
+            lastPublishSkipReason = "publisher_not_registered";
             LogPublishSkippedBeforeRegistration("publisher is not registered");
+            return false;
+        }
+
+        if (!RosTopicProvider.CanPublish(RosInputTopicKey.RightHandMecanumInput, out string rosUserReason)
+            || string.IsNullOrWhiteSpace(resolvedTopicName))
+        {
+            lastCanPublish = false;
+            lastPublishSkipReason = string.IsNullOrWhiteSpace(rosUserReason) ? "ros_user_session_not_ready" : rosUserReason;
+            LogPublishSkippedBeforeRegistration(lastPublishSkipReason);
             return false;
         }
 
         if (ros.HasConnectionError)
         {
+            lastCanPublish = false;
+            lastPublishSkipReason = "ros_connection_error";
             LogPublishSkippedBeforeRegistration("ROS connection is not ready");
             return false;
         }
 
         if (Time.realtimeSinceStartup < publisherReadyRealtime)
         {
+            lastCanPublish = false;
+            lastPublishSkipReason = "publisher_registration_settling";
             LogPublishSkippedBeforeRegistration("waiting for ROS-TCP publisher registration to settle");
             return false;
         }
@@ -555,6 +720,12 @@ public class RightHandMecanumControl : MonoBehaviour
 
     private void SetPopupVisible(bool visible, string text)
     {
+        if (!ShowLegacyPopup)
+        {
+            DisableLegacyPopup();
+            return;
+        }
+
         if (popupPanel == null || popupText == null)
         {
             return;
@@ -565,6 +736,61 @@ public class RightHandMecanumControl : MonoBehaviour
         if (ownsPopupCanvas && popupCanvas != null)
         {
             popupCanvas.gameObject.SetActive(visible);
+        }
+    }
+
+    private void DisableLegacyPopup()
+    {
+        if (legacyPopupDisabled)
+        {
+            return;
+        }
+
+        legacyPopupDisabled = true;
+        if (popupText != null && popupPanel == null)
+        {
+            popupPanel = popupText.transform.parent != null ? popupText.transform.parent.gameObject : popupText.gameObject;
+        }
+
+        if (popupText != null)
+        {
+            popupText.text = string.Empty;
+            popupText.gameObject.SetActive(false);
+        }
+
+        if (popupPanel != null)
+        {
+            popupPanel.SetActive(false);
+        }
+
+        if (ownsPopupCanvas && popupCanvas != null)
+        {
+            popupCanvas.gameObject.SetActive(false);
+        }
+
+        HideLegacyPopupObjectByName("RightHandMecanumPopupText");
+        HideLegacyPopupObjectByName("RightHandMecanumPopupPanel");
+        HideLegacyPopupObjectByName("RightHandMecanumPopupCanvas");
+    }
+
+    private void HideLegacyPopupObjectByName(string objectName)
+    {
+        Transform[] transforms = FindObjectsByType<Transform>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
+        for (int i = 0; i < transforms.Length; i++)
+        {
+            Transform candidate = transforms[i];
+            if (candidate != null && candidate.gameObject.name == objectName)
+            {
+                TMP_Text text = candidate.GetComponent<TMP_Text>();
+                if (text != null)
+                {
+                    text.text = string.Empty;
+                }
+
+                candidate.gameObject.SetActive(false);
+            }
         }
     }
 
@@ -609,18 +835,75 @@ public class RightHandMecanumControl : MonoBehaviour
 
     private void LogDebugOncePerSecond()
     {
-        if (Time.time < nextDebugLogTime)
+        if (!enableDiagnosticLog || Time.time < nextDebugLogTime)
         {
             return;
         }
 
-        // Debug.Log(
-        //     "[RightHandMecanumControl] state=" + state +
-        //     " holdTime=" + lastHoldTime.ToString("F2") +
-        //     " active=" + lastActive +
-        //     " delta_x=" + lastDeltaX.ToString("F3") +
-        //     " delta_z=" + lastDeltaZ.ToString("F3") +
-        //     " roll_delta=" + lastRollDelta.ToString("F3"));
-        nextDebugLogTime = Time.time + 1f;
+        UpdateMeasuredPublishHz();
+        float lastHandSeenAgo = lastHandSeenTime > -900f ? Time.time - lastHandSeenTime : -1f;
+        string rosStatus = ros == null
+            ? "NoROS"
+            : ros.HasConnectionError
+                ? "ConnectionError"
+                : publisherRegistered
+                    ? "Ready"
+                    : "NotRegistered";
+
+        Debug.Log(
+            "[RoverInputDiag] t=" + Time.time.ToString("F2") +
+            " pubCount=" + publishCount +
+            " pubHz=" + measuredPublishHz.ToString("F1") +
+            " pubInterval=" + lastPublishInterval.ToString("F3") +
+            " active=" + lastActive +
+            " hand=" + lastHandTracked +
+            " inputUsable=" + lastInputPoseUsable +
+            " driveActive=" + IsDriveActive +
+            " dx=" + lastDeltaX.ToString("F3") +
+            " dz=" + lastDeltaZ.ToString("F3") +
+            " roll=" + lastRollDelta.ToString("F3") +
+            " lastHandSeenAgo=" + lastHandSeenAgo.ToString("F2") +
+            " state=" + state +
+            " ros=" + rosStatus +
+            " skip=" + lastPublishSkipReason +
+            " reason=" + lastStateTransitionReason);
+        nextDebugLogTime = Time.time + Mathf.Max(0.1f, diagnosticLogIntervalSec);
+    }
+
+    private void UpdateMeasuredPublishHz()
+    {
+        if (publishHzWindowStartTime < 0f)
+        {
+            publishHzWindowStartTime = Time.time;
+            publishHzWindowStartCount = publishCount;
+            measuredPublishHz = 0f;
+            return;
+        }
+
+        float elapsed = Time.time - publishHzWindowStartTime;
+        if (elapsed < 0.5f)
+        {
+            return;
+        }
+
+        measuredPublishHz = (publishCount - publishHzWindowStartCount) / elapsed;
+        publishHzWindowStartTime = Time.time;
+        publishHzWindowStartCount = publishCount;
+    }
+
+    private void WarnIfMultipleControllers()
+    {
+        var controllers = FindObjectsByType<RightHandMecanumControl>(
+            FindObjectsInactive.Exclude,
+            FindObjectsSortMode.None);
+        if (controllers.Length <= 1)
+        {
+            return;
+        }
+
+        Debug.LogWarning(
+            "[RoverInputDiag] Multiple active RightHandMecanumControl instances detected: " +
+            controllers.Length +
+            ". Duplicate publishers can make /amir/right_hand_mecanum_input appear intermittent.");
     }
 }

@@ -43,6 +43,9 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
     public TMP_Dropdown roleDropdown;
     public TMP_Dropdown robotTargetDropdown;
     public TMP_InputField roomNameInput;
+    public Button user1ParticipantButton;
+    public Button user2ParticipantButton;
+    public Button user3ParticipantButton;
     public Button amirRobotButton;
     public Button roverRobotButton;
     public Button droneRobotButton;
@@ -61,6 +64,8 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
     private bool startRequested;
     private bool wasJoined;
     private bool hasSelectedRobot;
+    private bool hasSelectedParticipant;
+    private SharedMRParticipantId selectedParticipantId = SharedMRParticipantId.Unassigned;
     private SharedMRRobotTarget selectedRobotTarget = SharedMRRobotTarget.Amir;
     private float nextStatusRefreshTime;
 
@@ -120,6 +125,13 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
     public void StartSessionFromUi()
     {
         PhotonSharedMRSessionSettings settings = CollectSettingsFromUi();
+        if (!hasSelectedParticipant || settings.participantId == SharedMRParticipantId.Unassigned)
+        {
+            SetError("Please select User 1, User 2, or User 3.");
+            RefreshSelectionVisuals();
+            return;
+        }
+
         if (!IsPcAutoObserverRuntime() && !hasSelectedRobot)
         {
             SetError("Please select a robot target.");
@@ -180,6 +192,14 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
         startRequested = true;
         settings = BuildFixedSettings(settings);
         settings.Sanitize();
+        if (!ValidateSettingsBeforeJoin(settings))
+        {
+            SetStartInteractable(true);
+            startRequested = false;
+            RefreshSelectionVisuals();
+            return;
+        }
+
         defaultSettings = settings.Clone();
 
         SetStatus("Connection Status: Joining " + settings.roomName + " ...");
@@ -272,6 +292,13 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
         SetPanelVisible(false);
     }
 
+    public void ShowExternalSessionError(string message)
+    {
+        string safeMessage = string.IsNullOrWhiteSpace(message) ? "Unknown session error." : message;
+        SetError(safeMessage);
+        Debug.LogWarning("[PhotonSharedMRLoginPanel] External session error: " + safeMessage);
+    }
+
     public void SetPanelVisible(bool visible)
     {
         if (panelRoot != null)
@@ -326,6 +353,30 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
         SelectRobot(SharedMRRobotTarget.Observer);
     }
 
+    public void SelectUser1Participant()
+    {
+        SelectParticipant(SharedMRParticipantId.User1);
+    }
+
+    public void SelectUser2Participant()
+    {
+        SelectParticipant(SharedMRParticipantId.User2);
+    }
+
+    public void SelectUser3Participant()
+    {
+        SelectParticipant(SharedMRParticipantId.User3);
+    }
+
+    private void SelectParticipant(SharedMRParticipantId participantId)
+    {
+        selectedParticipantId = participantId;
+        hasSelectedParticipant = participantId != SharedMRParticipantId.Unassigned;
+        defaultSettings = BuildFixedSettings(defaultSettings);
+        RefreshSelectionVisuals();
+        RefreshStatusText(true);
+    }
+
     private void SelectRobot(SharedMRRobotTarget robotTarget)
     {
         selectedRobotTarget = robotTarget;
@@ -346,13 +397,26 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
             ? seed.Clone()
             : PhotonSharedMRSessionSettings.CreateDefault();
 
+        SharedMRParticipantId resolvedParticipantId = hasSelectedParticipant
+            ? selectedParticipantId
+            : settings.participantId;
+        if (resolvedParticipantId != SharedMRParticipantId.Unassigned)
+        {
+            selectedParticipantId = resolvedParticipantId;
+            hasSelectedParticipant = true;
+        }
+
         ShareDeviceType deviceType = DetectDeviceType();
         if (PhotonSharedMRSessionSettings.IsPcObserverDevice(deviceType))
         {
-            return PhotonSharedMRSessionSettings.CreatePcObserverDefaults(deviceType);
+            PhotonSharedMRSessionSettings observerSettings = PhotonSharedMRSessionSettings.CreatePcObserverDefaults(deviceType);
+            observerSettings.participantId = resolvedParticipantId;
+            observerSettings.Sanitize();
+            return observerSettings;
         }
 
         settings.roomName = PhotonSharedMRSessionSettings.DefaultRoomName;
+        settings.participantId = resolvedParticipantId;
         settings.userName = PhotonSharedMRSessionSettings.BuildRobotDisplayName(
             selectedRobotTarget,
             ResolveRoleForRobot(selectedRobotTarget));
@@ -362,6 +426,64 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
         settings.role = ResolveRoleForRobot(selectedRobotTarget);
         settings.Sanitize();
         return settings;
+    }
+
+    private bool ValidateSettingsBeforeJoin(PhotonSharedMRSessionSettings settings)
+    {
+        if (settings == null)
+        {
+            SetError("Session settings are missing.");
+            return false;
+        }
+
+        if (settings.participantId == SharedMRParticipantId.Unassigned)
+        {
+            SetError("ParticipantId is unassigned.");
+            Debug.LogWarning("[PhotonSharedMRLoginPanel] Join rejected: ParticipantId is unassigned.");
+            return false;
+        }
+
+        if (!Enum.IsDefined(typeof(SharedMRRobotTarget), settings.robotTarget))
+        {
+            SetError("RobotTarget is invalid.");
+            Debug.LogWarning("[PhotonSharedMRLoginPanel] Join rejected: RobotTarget is invalid.");
+            return false;
+        }
+
+        if (IsParticipantIdVisibleInCurrentRoster(settings.participantId, out string owner))
+        {
+            string reason = "Participant " + PhotonSharedMRSessionSettings.BuildParticipantDisplayName(settings.participantId)
+                + " is already reserved by " + owner + ".";
+            SetError(reason);
+            Debug.LogWarning("[PhotonSharedMRLoginPanel] Join rejected: " + reason);
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsParticipantIdVisibleInCurrentRoster(SharedMRParticipantId participantId, out string owner)
+    {
+        owner = string.Empty;
+        NetworkUserAvatar[] avatars = FindObjectsOfType<NetworkUserAvatar>(true);
+        for (int i = 0; i < avatars.Length; i++)
+        {
+            NetworkUserAvatar avatar = avatars[i];
+            if (avatar == null || !avatar.IsNetworkStateReady)
+            {
+                continue;
+            }
+
+            if (avatar.ParticipantId != participantId)
+            {
+                continue;
+            }
+
+            owner = avatar.DisplayPlayerLabel;
+            return true;
+        }
+
+        return false;
     }
 
     private static SharedUserRole ResolveRoleForRobot(SharedMRRobotTarget robotTarget)
@@ -470,17 +592,21 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
         Image panelImage = panel.GetComponent<Image>();
         panelImage.color = new Color(0.03f, 0.06f, 0.08f, 0.94f);
 
-        CreateLabel(panel.transform, "Title", "Photon Shared MR", 30, new Vector2(-50f, 248f), new Vector2(350f, 48f), FontStyles.Bold);
+        CreateLabel(panel.transform, "Title", "Photon Shared MR", 30, new Vector2(-50f, 268f), new Vector2(350f, 48f), FontStyles.Bold);
         closeButton = CreateButton(panel.transform, "CloseLoginPanelButton", "Close", new Vector2(195f, 274f), new Vector2(110f, 48f));
-        selectionText = CreateLabel(panel.transform, "RobotSelectionLabel", "Select Robot Target", 22, new Vector2(0f, 194f), new Vector2(460f, 36f), FontStyles.Normal);
+        selectionText = CreateLabel(panel.transform, "RobotSelectionLabel", "Select User and Robot Target", 21, new Vector2(0f, 218f), new Vector2(460f, 46f), FontStyles.Normal);
 
-        amirRobotButton = CreateButton(panel.transform, "AmirButton", "AMIR", new Vector2(-118f, 128f));
-        roverRobotButton = CreateButton(panel.transform, "RoverButton", "Rover", new Vector2(118f, 128f));
-        droneRobotButton = CreateButton(panel.transform, "DroneButton", "Drone", new Vector2(-118f, 58f));
-        observerRobotButton = CreateButton(panel.transform, "ObserverButton", "Observer", new Vector2(118f, 58f));
+        user1ParticipantButton = CreateButton(panel.transform, "User1ParticipantButton", "User 1", new Vector2(-156f, 158f), new Vector2(136f, 52f));
+        user2ParticipantButton = CreateButton(panel.transform, "User2ParticipantButton", "User 2", new Vector2(0f, 158f), new Vector2(136f, 52f));
+        user3ParticipantButton = CreateButton(panel.transform, "User3ParticipantButton", "User 3", new Vector2(156f, 158f), new Vector2(136f, 52f));
 
-        protocolText = CreateLabel(panel.transform, "ProtocolText", "Room: SHARE-MR-Room", 16, new Vector2(0f, 2f), new Vector2(430f, 24f), FontStyles.Normal);
-        fixedRegionText = CreateLabel(panel.transform, "FixedRegionText", "Mode: AutoHostOrClient", 16, new Vector2(0f, -26f), new Vector2(430f, 24f), FontStyles.Normal);
+        amirRobotButton = CreateButton(panel.transform, "AmirButton", "AMIR", new Vector2(-118f, 88f));
+        roverRobotButton = CreateButton(panel.transform, "RoverButton", "Rover", new Vector2(118f, 88f));
+        droneRobotButton = CreateButton(panel.transform, "DroneButton", "Drone", new Vector2(-118f, 18f));
+        observerRobotButton = CreateButton(panel.transform, "ObserverButton", "Observer", new Vector2(118f, 18f));
+
+        protocolText = CreateLabel(panel.transform, "ProtocolText", "Room: SHARE-MR-Room", 16, new Vector2(0f, -42f), new Vector2(430f, 24f), FontStyles.Normal);
+        fixedRegionText = CreateLabel(panel.transform, "FixedRegionText", "Mode: AutoHostOrClient", 16, new Vector2(0f, -70f), new Vector2(430f, 24f), FontStyles.Normal);
         startButton = CreateButton(panel.transform, "StartButton", "Join Room", new Vector2(0f, -98f));
         statusText = CreateLabel(panel.transform, "StatusText", "Connection Status: NotStarted", 17, new Vector2(0f, -176f), new Vector2(460f, 58f), FontStyles.Normal);
         errorText = CreateLabel(panel.transform, "LastErrorText", "Last Error: None", 16, new Vector2(0f, -250f), new Vector2(460f, 58f), FontStyles.Normal);
@@ -493,6 +619,8 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
     {
         settings ??= PhotonSharedMRSessionSettings.CreateDefault();
         settings.Sanitize();
+        selectedParticipantId = settings.participantId;
+        hasSelectedParticipant = selectedParticipantId != SharedMRParticipantId.Unassigned;
         selectedRobotTarget = settings.robotTarget;
         if (IsPcAutoObserverRuntime())
         {
@@ -516,6 +644,9 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
         roleDropdown = FindChildComponent<TMP_Dropdown>("RoleDropdown");
         robotTargetDropdown = FindChildComponent<TMP_Dropdown>("RobotTargetDropdown");
         roomNameInput = FindChildComponent<TMP_InputField>("RoomNameInput");
+        user1ParticipantButton = FindChildComponent<Button>("User1ParticipantButton");
+        user2ParticipantButton = FindChildComponent<Button>("User2ParticipantButton");
+        user3ParticipantButton = FindChildComponent<Button>("User3ParticipantButton");
         amirRobotButton = FindChildComponent<Button>("AmirButton");
         roverRobotButton = FindChildComponent<Button>("RoverButton");
         droneRobotButton = FindChildComponent<Button>("DroneButton");
@@ -539,6 +670,9 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
             && roleDropdown == null
             && robotTargetDropdown == null
             && roomNameInput == null
+            && user1ParticipantButton != null
+            && user2ParticipantButton != null
+            && user3ParticipantButton != null
             && amirRobotButton != null
             && roverRobotButton != null
             && droneRobotButton != null
@@ -555,6 +689,9 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
     private void WireStartButton()
     {
         WireButton(startButton, StartSessionFromUi, nameof(StartSessionFromUi));
+        WireButton(user1ParticipantButton, SelectUser1Participant, nameof(SelectUser1Participant));
+        WireButton(user2ParticipantButton, SelectUser2Participant, nameof(SelectUser2Participant));
+        WireButton(user3ParticipantButton, SelectUser3Participant, nameof(SelectUser3Participant));
         WireButton(amirRobotButton, SelectAmirRobot, nameof(SelectAmirRobot));
         WireButton(roverRobotButton, SelectRoverRobot, nameof(SelectRoverRobot));
         WireButton(droneRobotButton, SelectDroneRobot, nameof(SelectDroneRobot));
@@ -624,7 +761,7 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
     {
         if (startButton != null)
         {
-            startButton.interactable = interactable && (hasSelectedRobot || IsPcAutoObserverRuntime());
+            startButton.interactable = interactable && hasSelectedParticipant && (hasSelectedRobot || IsPcAutoObserverRuntime());
         }
 
         if (retryButton != null)
@@ -660,6 +797,7 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
         {
             statusText.text = "Connection Status: " + (joined ? "Joined" : joinState)
                 + "\nRoomName: " + room
+                + "\nParticipant: " + (hasSelectedParticipant ? PhotonSharedMRSessionSettings.BuildParticipantDisplayName(selectedParticipantId) : "Not Selected")
                 + "\nRobot: " + (pcAutoObserver ? SharedMRRobotTarget.Observer.ToString() : (hasSelectedRobot ? selectedRobotTarget.ToString() : "Not Selected"));
         }
 
@@ -674,6 +812,9 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
     private void RefreshSelectionVisuals()
     {
         ApplyPcObserverUiState();
+        RefreshParticipantButtonVisual(user1ParticipantButton, SharedMRParticipantId.User1);
+        RefreshParticipantButtonVisual(user2ParticipantButton, SharedMRParticipantId.User2);
+        RefreshParticipantButtonVisual(user3ParticipantButton, SharedMRParticipantId.User3);
         RefreshRobotButtonVisual(amirRobotButton, SharedMRRobotTarget.Amir);
         RefreshRobotButtonVisual(roverRobotButton, SharedMRRobotTarget.Rover);
         RefreshRobotButtonVisual(droneRobotButton, SharedMRRobotTarget.Drone);
@@ -682,18 +823,21 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
         if (selectionText != null)
         {
             selectionText.text = hasSelectedRobot
-                ? "Robot Target: " + selectedRobotTarget
-                : "Select Robot Target";
+                ? "Participant: " + (hasSelectedParticipant ? PhotonSharedMRSessionSettings.BuildParticipantDisplayName(selectedParticipantId) : "Not Selected")
+                    + " / Robot Target: " + selectedRobotTarget
+                : "Select User and Robot Target";
         }
 
         if (selectionText != null && IsPcAutoObserverRuntime())
         {
-            selectionText.text = "Observer fixed";
+            selectionText.text = "Participant: "
+                + (hasSelectedParticipant ? PhotonSharedMRSessionSettings.BuildParticipantDisplayName(selectedParticipantId) : "Not Selected")
+                + " / Robot Target: Observer";
         }
 
         if (startButton != null)
         {
-            startButton.interactable = !startRequested && !IsJoined() && (hasSelectedRobot || IsPcAutoObserverRuntime());
+            startButton.interactable = !startRequested && !IsJoined() && hasSelectedParticipant && (hasSelectedRobot || IsPcAutoObserverRuntime());
         }
     }
 
@@ -733,6 +877,34 @@ public class PhotonSharedMRLoginPanel : MonoBehaviour
         }
 
         bool selected = hasSelectedRobot && selectedRobotTarget == robotTarget;
+        Image image = button.GetComponent<Image>();
+        if (image != null)
+        {
+            image.color = selected
+                ? new Color(0.10f, 0.58f, 0.42f, 1f)
+                : new Color(0.05f, 0.34f, 0.42f, 0.98f);
+        }
+
+        ColorBlock colors = button.colors;
+        colors.normalColor = image != null ? image.color : colors.normalColor;
+        colors.highlightedColor = selected
+            ? new Color(0.16f, 0.72f, 0.52f, 1f)
+            : new Color(0.08f, 0.48f, 0.58f, 1f);
+        colors.pressedColor = selected
+            ? new Color(0.06f, 0.42f, 0.30f, 1f)
+            : new Color(0.02f, 0.25f, 0.32f, 1f);
+        colors.selectedColor = colors.highlightedColor;
+        button.colors = colors;
+    }
+
+    private void RefreshParticipantButtonVisual(Button button, SharedMRParticipantId participantId)
+    {
+        if (button == null)
+        {
+            return;
+        }
+
+        bool selected = hasSelectedParticipant && selectedParticipantId == participantId;
         Image image = button.GetComponent<Image>();
         if (image != null)
         {

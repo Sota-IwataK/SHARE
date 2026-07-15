@@ -18,6 +18,14 @@ public enum SharedMRRobotTarget
     Rover = 3
 }
 
+public enum SharedMRParticipantId
+{
+    Unassigned = 0,
+    User1 = 1,
+    User2 = 2,
+    User3 = 3
+}
+
 [Serializable]
 public class PhotonSharedMRSessionSettings
 {
@@ -27,6 +35,7 @@ public class PhotonSharedMRSessionSettings
 
     public string userName = DefaultUserName;
     public bool isHostLikeUser = true;
+    public SharedMRParticipantId participantId = SharedMRParticipantId.Unassigned;
     public ShareDeviceType deviceType = ShareDeviceType.PCEditor;
     public SharedUserRole role = SharedUserRole.ManipulatorOperator;
     public SharedMRRobotTarget robotTarget = SharedMRRobotTarget.Amir;
@@ -81,12 +90,52 @@ public class PhotonSharedMRSessionSettings
         }
     }
 
+    public static string BuildParticipantDisplayName(SharedMRParticipantId participantId)
+    {
+        switch (participantId)
+        {
+            case SharedMRParticipantId.User1:
+                return "User 1";
+            case SharedMRParticipantId.User2:
+                return "User 2";
+            case SharedMRParticipantId.User3:
+                return "User 3";
+            default:
+                return "Unassigned";
+        }
+    }
+
+    public static bool TryGetRosUserId(SharedMRParticipantId participantId, out string rosUserId)
+    {
+        switch (participantId)
+        {
+            case SharedMRParticipantId.User1:
+                rosUserId = "user_1";
+                return true;
+            case SharedMRParticipantId.User2:
+                rosUserId = "user_2";
+                return true;
+            case SharedMRParticipantId.User3:
+                rosUserId = "user_3";
+                return true;
+            default:
+                rosUserId = string.Empty;
+                return false;
+        }
+    }
+
+    public bool TryGetRosUserId(out string rosUserId)
+    {
+        return TryGetRosUserId(participantId, out rosUserId);
+    }
+
     public PhotonSharedMRSessionSettings Clone()
     {
         return new PhotonSharedMRSessionSettings
         {
             userName = userName,
             isHostLikeUser = isHostLikeUser,
+            participantId = participantId,
             deviceType = deviceType,
             role = role,
             robotTarget = robotTarget,
@@ -102,6 +151,11 @@ public class PhotonSharedMRSessionSettings
         if (!Enum.IsDefined(typeof(ShareDeviceType), deviceType))
         {
             deviceType = ShareDeviceType.Unknown;
+        }
+
+        if (!Enum.IsDefined(typeof(SharedMRParticipantId), participantId))
+        {
+            participantId = SharedMRParticipantId.Unassigned;
         }
 
         if (!Enum.IsDefined(typeof(SharedUserRole), role))

@@ -74,6 +74,9 @@ public class handPosePublisher : MonoBehaviour
     private string registeredHmdRelativeTopic;
     private string registeredWorldTopic;
     private string registeredPalmPoseWorldDiagTopic;
+    private string resolvedTopicName;
+    private string resolvedHmdRelativeTopicName;
+    private string resolvedWorldTopicName;
     private float nextPublishTime;
     private float nextPalmPoseWorldDiagPublishTime;
     private float nextMissingLeftHandLogTime;
@@ -551,36 +554,46 @@ public class handPosePublisher : MonoBehaviour
         rosReady = ros != null;
         if (!rosReady) return;
 
-        if (registeredTopic != topicName)
+        if (!RosTopicProvider.TryResolveTopic(RosInputTopicKey.PalmPose, topicName, out resolvedTopicName, out _)
+            || !RosTopicProvider.TryResolveTopic(RosInputTopicKey.PalmPoseHmdRelative, hmdRelativeTopicName, out resolvedHmdRelativeTopicName, out _)
+            || !RosTopicProvider.TryResolveTopic(RosInputTopicKey.PalmPoseWorld, PalmPoseWorldTopic, out resolvedWorldTopicName, out _))
         {
-            ros.RegisterPublisher<RosMessageTypes.Geometry.PoseStampedMsg>(topicName);
-            registeredTopic = topicName;
+            registered = false;
+            hmdRelativeRegistered = false;
+            worldRegistered = false;
+            return;
+        }
+
+        if (registeredTopic != resolvedTopicName)
+        {
+            ros.RegisterPublisher<RosMessageTypes.Geometry.PoseStampedMsg>(resolvedTopicName);
+            registeredTopic = resolvedTopicName;
             registered = true;
-            Debug.Log("[handPosePublisher] RegisterPublisher " + topicName);
+            Debug.Log("[handPosePublisher] RegisterPublisher " + resolvedTopicName);
         }
         else
         {
             registered = true;
         }
 
-        if (!string.IsNullOrWhiteSpace(hmdRelativeTopicName) && registeredHmdRelativeTopic != hmdRelativeTopicName)
+        if (!string.IsNullOrWhiteSpace(resolvedHmdRelativeTopicName) && registeredHmdRelativeTopic != resolvedHmdRelativeTopicName)
         {
-            ros.RegisterPublisher<RosMessageTypes.Geometry.PoseStampedMsg>(hmdRelativeTopicName);
-            registeredHmdRelativeTopic = hmdRelativeTopicName;
+            ros.RegisterPublisher<RosMessageTypes.Geometry.PoseStampedMsg>(resolvedHmdRelativeTopicName);
+            registeredHmdRelativeTopic = resolvedHmdRelativeTopicName;
             hmdRelativeRegistered = true;
-            Debug.Log("[handPosePublisher] RegisterPublisher " + hmdRelativeTopicName);
+            Debug.Log("[handPosePublisher] RegisterPublisher " + resolvedHmdRelativeTopicName);
         }
-        else if (!string.IsNullOrWhiteSpace(hmdRelativeTopicName))
+        else if (!string.IsNullOrWhiteSpace(resolvedHmdRelativeTopicName))
         {
             hmdRelativeRegistered = true;
         }
 
-        if (registeredWorldTopic != PalmPoseWorldTopic)
+        if (registeredWorldTopic != resolvedWorldTopicName)
         {
-            ros.RegisterPublisher<RosMessageTypes.Geometry.PoseStampedMsg>(PalmPoseWorldTopic);
-            registeredWorldTopic = PalmPoseWorldTopic;
+            ros.RegisterPublisher<RosMessageTypes.Geometry.PoseStampedMsg>(resolvedWorldTopicName);
+            registeredWorldTopic = resolvedWorldTopicName;
             worldRegistered = true;
-            Debug.Log("[PalmPoseWorld] publisher registered: " + PalmPoseWorldTopic);
+            Debug.Log("[PalmPoseWorld] publisher registered: " + resolvedWorldTopicName);
         }
         else
         {
@@ -600,7 +613,9 @@ public class handPosePublisher : MonoBehaviour
         publishHandPoseCalled = true;
         LogPalmPoseWorldPublishHandPoseHeartbeat();
         EnsurePublisher();
-        if (!CanPublishLeftPalmPose(topicName))
+        if (string.IsNullOrWhiteSpace(resolvedTopicName)
+            || !CanPublishLeftPalmPose(resolvedTopicName)
+            || !RosTopicProvider.CanPublish(RosInputTopicKey.PalmPose, out _))
         {
             return;
         }
@@ -630,7 +645,7 @@ public class handPosePublisher : MonoBehaviour
         SetGeometryPoint(pose, message.pose.position);
         SetGeometryQuaternion(rotation, message.pose.orientation);
 
-        ros.Publish(topicName, message);
+        ros.Publish(resolvedTopicName, message);
         PublishHmdRelativePose(stamp);
         publishCount++;
         lastPalmPosition = pose;
@@ -691,17 +706,19 @@ public class handPosePublisher : MonoBehaviour
         hmdRelativeMessage.pose.orientation.z = 0.0;
         hmdRelativeMessage.pose.orientation.w = 1.0;
 
-        if (!CanPublishLeftPalmPose(hmdRelativeTopicName))
+        if (string.IsNullOrWhiteSpace(resolvedHmdRelativeTopicName)
+            || !CanPublishLeftPalmPose(resolvedHmdRelativeTopicName)
+            || !RosTopicProvider.CanPublish(RosInputTopicKey.PalmPoseHmdRelative, out _))
         {
             return;
         }
 
-        ros.Publish(hmdRelativeTopicName, hmdRelativeMessage);
+        ros.Publish(resolvedHmdRelativeTopicName, hmdRelativeMessage);
         hmdRelativePublishCount++;
         lastPalmHmdDelta = palmHmdDelta;
         if (hmdRelativePublishCount <= 5 || hmdRelativePublishCount % 30 == 0)
         {
-            Debug.Log("[handPosePublisher] Published " + hmdRelativeTopicName
+            Debug.Log("[handPosePublisher] Published " + resolvedHmdRelativeTopicName
                 + " count=" + hmdRelativePublishCount
                 + " delta=" + palmHmdDelta.ToString("F3"));
         }
@@ -713,7 +730,7 @@ public class handPosePublisher : MonoBehaviour
         LogPalmPoseWorldTick();
         EnsurePalmPoseWorldTopicName();
         EnsurePublisher();
-        if (ros == null)
+        if (ros == null || string.IsNullOrWhiteSpace(resolvedWorldTopicName))
         {
             return;
         }
@@ -723,7 +740,7 @@ public class handPosePublisher : MonoBehaviour
             InitializeMessage();
         }
 
-        if (!TryGetLeftPalmWorldPosition(out Vector3 palmWorldPosition, PalmPoseWorldTopic))
+        if (!TryGetLeftPalmWorldPosition(out Vector3 palmWorldPosition, resolvedWorldTopicName))
         {
             return;
         }
@@ -738,12 +755,13 @@ public class handPosePublisher : MonoBehaviour
         worldMessage.pose.orientation.z = 0.0;
         worldMessage.pose.orientation.w = 1.0;
 
-        if (!CanPublishLeftPalmPose(PalmPoseWorldTopic))
+        if (!CanPublishLeftPalmPose(resolvedWorldTopicName)
+            || !RosTopicProvider.CanPublish(RosInputTopicKey.PalmPoseWorld, out _))
         {
             return;
         }
 
-        ros.Publish(PalmPoseWorldTopic, worldMessage);
+        ros.Publish(resolvedWorldTopicName, worldMessage);
         worldPosePublishCount++;
         lastPalmWorldPosition = palmWorldPosition;
         hasLastPalmWorldPosition = true;

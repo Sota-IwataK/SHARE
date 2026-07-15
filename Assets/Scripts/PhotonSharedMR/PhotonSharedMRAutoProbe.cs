@@ -14,6 +14,7 @@ public class PhotonSharedMRAutoProbe : MonoBehaviour
 
     private string probeLabel = "Probe";
     private string probeUserName = "Probe";
+    private SharedMRParticipantId probeParticipantId = SharedMRParticipantId.User1;
     private SharedUserRole probeRole = SharedUserRole.ManipulatorOperator;
     private ShareDeviceType probeDeviceType = ShareDeviceType.Unknown;
     private SharedMRRobotTarget probeRobotTarget = SharedMRRobotTarget.Amir;
@@ -48,6 +49,7 @@ public class PhotonSharedMRAutoProbe : MonoBehaviour
         PhotonSharedMRAutoProbe probe = probeObject.AddComponent<PhotonSharedMRAutoProbe>();
         probe.probeLabel = GetArgValue(args, "-sharePhotonProbeLabel", "Probe");
         probe.probeUserName = GetArgValue(args, "-sharePhotonProbeUserName", probe.probeLabel);
+        probe.probeParticipantId = GetArgEnum(args, "-sharePhotonProbeParticipantId", SharedMRParticipantId.User1);
         probe.probeRole = GetArgEnum(args, "-sharePhotonProbeRole", SharedUserRole.ManipulatorOperator);
         probe.probeDeviceType = GetArgEnum(args, "-sharePhotonProbeDeviceType", Application.isEditor ? ShareDeviceType.PCEditor : ShareDeviceType.Unknown);
         probe.probeRobotTarget = GetArgEnum(args, "-sharePhotonProbeRobotTarget", SharedMRRobotTarget.Amir);
@@ -62,6 +64,7 @@ public class PhotonSharedMRAutoProbe : MonoBehaviour
             + " grabBottle=" + probe.grabBottle
             + " duration=" + probe.durationSeconds
             + " userName=" + probe.probeUserName
+            + " participantId=" + probe.probeParticipantId
             + " role=" + probe.probeRole
             + " deviceType=" + probe.probeDeviceType
             + " robotTarget=" + probe.probeRobotTarget
@@ -101,6 +104,7 @@ public class PhotonSharedMRAutoProbe : MonoBehaviour
             sessionStartRequested = true;
             PhotonSharedMRSessionSettings settings = PhotonSharedMRSessionSettings.CreateDefault();
             settings.userName = probeUserName;
+            settings.participantId = probeParticipantId;
             settings.role = probeRole;
             settings.deviceType = probeDeviceType;
             settings.robotTarget = probeRobotTarget;
@@ -118,6 +122,7 @@ public class PhotonSharedMRAutoProbe : MonoBehaviour
 
             Debug.Log("[PhotonSharedMRAutoProbe] SESSION_START_REQUESTED label=" + probeLabel
                 + " userName=" + settings.userName
+                + " participantId=" + settings.participantId
                 + " role=" + settings.role
                 + " deviceType=" + settings.deviceType
                 + " robotTarget=" + settings.robotTarget

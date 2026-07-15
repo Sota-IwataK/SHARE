@@ -65,6 +65,7 @@ public class NetworkUserAvatar :
 
     [Header("User Metadata")]
     [SerializeField] private string fallbackUserName = PhotonSharedMRSessionSettings.DefaultUserName;
+    [SerializeField] private SharedMRParticipantId fallbackParticipantId = SharedMRParticipantId.Unassigned;
     [SerializeField] private SharedUserRole fallbackRole = SharedUserRole.ManipulatorOperator;
     [SerializeField] private ShareDeviceType fallbackDeviceType = ShareDeviceType.PCEditor;
     [SerializeField] private SharedMRRobotTarget fallbackRobotTarget = SharedMRRobotTarget.Amir;
@@ -118,6 +119,7 @@ public class NetworkUserAvatar :
 
 #if FUSION_WEAVER && FUSION2
     [Networked] public NetworkString<_64> UserNameValue { get; set; }
+    [Networked] public int ParticipantIdValue { get; set; }
     [Networked] public int RoleValue { get; set; }
     [Networked] public int DeviceTypeValue { get; set; }
     [Networked] public int RobotTargetValue { get; set; }
@@ -196,6 +198,18 @@ public class NetworkUserAvatar :
             return CanReadNetworkState ? ClampRole(RoleValue) : fallbackRole;
 #else
             return fallbackRole;
+#endif
+        }
+    }
+
+    public SharedMRParticipantId ParticipantId
+    {
+        get
+        {
+#if FUSION_WEAVER && FUSION2
+            return CanReadNetworkState ? ClampParticipantId(ParticipantIdValue) : fallbackParticipantId;
+#else
+            return fallbackParticipantId;
 #endif
         }
     }
@@ -362,6 +376,7 @@ public class NetworkUserAvatar :
         settings.Sanitize();
 
         fallbackUserName = settings.userName;
+        fallbackParticipantId = settings.participantId;
         fallbackRole = settings.role;
         fallbackDeviceType = settings.deviceType;
         fallbackRobotTarget = settings.robotTarget;
@@ -371,6 +386,7 @@ public class NetworkUserAvatar :
         if (Object != null && HasStateAuthority)
         {
             UserNameValue = settings.userName;
+            ParticipantIdValue = (int)settings.participantId;
             RoleValue = (int)settings.role;
             DeviceTypeValue = (int)settings.deviceType;
             RobotTargetValue = (int)settings.robotTarget;
@@ -381,6 +397,7 @@ public class NetworkUserAvatar :
         else if (Object != null && Object.HasInputAuthority)
         {
             RPC_ApplyInputAuthorityMetadata(
+                (int)settings.participantId,
                 (int)settings.role,
                 (int)settings.deviceType,
                 (int)settings.robotTarget,
@@ -477,6 +494,11 @@ public class NetworkUserAvatar :
         LogAvatarDebug("PHOTON_AVATAR_SPAWNED networkStateReady=true");
         Debug.Log("[NetworkUserAvatar] Spawned"
             + " PlayerRef=" + (Object != null ? Object.InputAuthority.ToString() : "None")
+            + " ParticipantId=" + ParticipantId
+            + " RobotTarget=" + RobotTarget
+            + " Role=" + CurrentRole
+            + " DeviceType=" + DeviceType
+            + " UserName=" + CurrentUserName
             + " IsLocalAvatar=" + IsLocalUser
             + " Object.InputAuthority=" + (Object != null ? Object.InputAuthority.ToString() : "None")
             + " Object.StateAuthority=" + (Object != null ? Object.StateAuthority.ToString() : "None")
@@ -492,6 +514,7 @@ public class NetworkUserAvatar :
         SetAllFingerTipVisualsVisible(false);
         if (Local == this)
         {
+            RosTopicProvider.ReleaseLocalState("NetworkUserAvatar.Despawned");
             Local = null;
             LocalViewTransform = null;
         }
@@ -557,6 +580,7 @@ public class NetworkUserAvatar :
         SetAllFingerTipVisualsVisible(false);
         if (Local == this)
         {
+            RosTopicProvider.ReleaseLocalState("NetworkUserAvatar.OnDisable");
             Local = null;
             LocalViewTransform = null;
         }
@@ -855,6 +879,7 @@ public class NetworkUserAvatar :
         UserNameValue = string.IsNullOrWhiteSpace(fallbackUserName)
             ? PhotonSharedMRSessionSettings.DefaultUserName
             : fallbackUserName;
+        ParticipantIdValue = (int)fallbackParticipantId;
         RoleValue = (int)fallbackRole;
         DeviceTypeValue = (int)fallbackDeviceType;
         RobotTargetValue = (int)fallbackRobotTarget;
@@ -959,8 +984,9 @@ public class NetworkUserAvatar :
     }
 
     [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
-    private void RPC_ApplyInputAuthorityMetadata(int roleValue, int deviceTypeValue, int robotTargetValue, bool isHostLikeUserValue)
+    private void RPC_ApplyInputAuthorityMetadata(int participantIdValue, int roleValue, int deviceTypeValue, int robotTargetValue, bool isHostLikeUserValue)
     {
+        ParticipantIdValue = participantIdValue;
         RoleValue = roleValue;
         DeviceTypeValue = deviceTypeValue;
         RobotTargetValue = robotTargetValue;
@@ -1620,6 +1646,16 @@ public class NetworkUserAvatar :
         }
 
         return (ShareDeviceType)value;
+    }
+
+    private static SharedMRParticipantId ClampParticipantId(int value)
+    {
+        if (!System.Enum.IsDefined(typeof(SharedMRParticipantId), value))
+        {
+            return SharedMRParticipantId.Unassigned;
+        }
+
+        return (SharedMRParticipantId)value;
     }
 
     private static SharedMRRobotTarget ClampRobotTarget(int value)

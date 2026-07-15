@@ -88,6 +88,7 @@ public class PinchDistanceGripperController : MonoBehaviour
 
     private ROSConnection ros;
     private string registeredTopic;
+    private string resolvedTopicName;
     private bool publisherRegistered;
     private float publisherReadyRealtime;
     private GripperState currentState = GripperState.Unknown;
@@ -236,14 +237,29 @@ public class PinchDistanceGripperController : MonoBehaviour
         }
 
         ros ??= ROSConnection.GetOrCreateInstance();
-        if (ros == null || (registeredTopic == topicName && publisherRegistered))
+        if (ros == null)
+        {
+            return;
+        }
+
+        if (!RosTopicProvider.TryResolveTopic(
+                RosInputTopicKey.GripperCommand,
+                topicName,
+                out resolvedTopicName,
+                out _))
+        {
+            publisherRegistered = false;
+            return;
+        }
+
+        if (registeredTopic == resolvedTopicName && publisherRegistered)
         {
             return;
         }
 
         Ros2MessageRegistryCompatibility.EnsureRegistered();
-        ros.RegisterPublisher<RosString>(topicName, queueSize, false);
-        registeredTopic = topicName;
+        ros.RegisterPublisher<RosString>(resolvedTopicName, queueSize, false);
+        registeredTopic = resolvedTopicName;
         publisherRegistered = true;
         publisherReadyRealtime = Time.realtimeSinceStartup + PublisherRegistrationSettleSeconds;
         loggedPublishSkippedBeforeRegistration = false;
@@ -261,7 +277,7 @@ public class PinchDistanceGripperController : MonoBehaviour
         }
 
         EnsurePublisher();
-        if (ros == null || string.IsNullOrWhiteSpace(topicName) || !CanPublish())
+        if (ros == null || string.IsNullOrWhiteSpace(resolvedTopicName) || !CanPublish())
         {
             return false;
         }
@@ -272,7 +288,7 @@ public class PinchDistanceGripperController : MonoBehaviour
             data = command
         };
 
-        ros.Publish(topicName, message);
+        ros.Publish(resolvedTopicName, message);
         currentState = nextState;
         nextPublishAllowedTime = Time.time + publishCooldownSec;
 
@@ -295,6 +311,15 @@ public class PinchDistanceGripperController : MonoBehaviour
         if (!publisherRegistered)
         {
             LogPublishSkippedBeforeRegistration("publisher is not registered");
+            return false;
+        }
+
+        if (!RosTopicProvider.CanPublish(RosInputTopicKey.GripperCommand, out string rosUserReason)
+            || string.IsNullOrWhiteSpace(resolvedTopicName))
+        {
+            LogPublishSkippedBeforeRegistration(string.IsNullOrWhiteSpace(rosUserReason)
+                ? "ROS user session is not ready"
+                : rosUserReason);
             return false;
         }
 

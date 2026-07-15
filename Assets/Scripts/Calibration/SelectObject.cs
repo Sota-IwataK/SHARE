@@ -2937,7 +2937,13 @@ public class SelectObject : MonoBehaviour
        ApplyUnityWorldPose(controlCenterWorldMessage, controlCenterWorld);
        lastControlCenterWorldMsgPosition = ConvertUnityWorldToPublishedWorldPosition(controlCenterWorld);
        hasLastControlCenterWorldMsgPosition = true;
-       controlCenterRos.Publish(controlCenterWorldTopic, controlCenterWorldMessage);
+       if (!RosTopicProvider.CanPublish(RosInputTopicKey.PalmPoseControlCenterWorld, out _)
+           || string.IsNullOrWhiteSpace(registeredControlCenterWorldTopic))
+       {
+           return;
+       }
+
+       controlCenterRos.Publish(registeredControlCenterWorldTopic, controlCenterWorldMessage);
    }
 
    private bool EnsureControlCenterWorldPublisher()
@@ -2953,11 +2959,20 @@ public class SelectObject : MonoBehaviour
            return false;
        }
 
-       if (registeredControlCenterWorldTopic != controlCenterWorldTopic)
+       if (!RosTopicProvider.TryResolveTopic(
+               RosInputTopicKey.PalmPoseControlCenterWorld,
+               controlCenterWorldTopic,
+               out string resolvedControlCenterWorldTopic,
+               out _))
        {
-           controlCenterRos.RegisterPublisher<RosMessageTypes.Geometry.PoseStampedMsg>(controlCenterWorldTopic);
-           registeredControlCenterWorldTopic = controlCenterWorldTopic;
-           Debug.Log("[PalmPoseCenterGate] RegisterPublisher " + controlCenterWorldTopic);
+           return false;
+       }
+
+       if (registeredControlCenterWorldTopic != resolvedControlCenterWorldTopic)
+       {
+           controlCenterRos.RegisterPublisher<RosMessageTypes.Geometry.PoseStampedMsg>(resolvedControlCenterWorldTopic);
+           registeredControlCenterWorldTopic = resolvedControlCenterWorldTopic;
+           Debug.Log("[PalmPoseCenterGate] RegisterPublisher " + resolvedControlCenterWorldTopic);
        }
 
        return true;

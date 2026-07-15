@@ -1,4 +1,4 @@
-using System.Collections;
+using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -7,13 +7,22 @@ using UnityEngine.UI;
 public class RoverControlStatusHUD : MonoBehaviour
 {
     private static RoverControlStatusHUD instance;
+    private static readonly HashSet<string> AllowedDirectionLabels = new HashSet<string>
+    {
+        "FORWARD",
+        "BACK",
+        "LEFT",
+        "RIGHT",
+        "STOP"
+    };
 
     [SerializeField] private RightHandMecanumControl roverController;
     [SerializeField] private TextMeshProUGUI statusText;
     [SerializeField] private float refreshRateHz = 10f;
+    [SerializeField] private float hudDirectionThreshold = 0.01f;
+    [SerializeField] private bool enableDirectionLog;
     [SerializeField] private bool followHead = true;
     [SerializeField] private Vector3 localOffset = new Vector3(0.32f, 0.18f, 0.7f);
-    [SerializeField] private float notificationDurationSec = 1.5f;
 
     private const float CanvasScale = 0.0015f;
     private const float PanelWidth = 560f;
@@ -22,23 +31,33 @@ public class RoverControlStatusHUD : MonoBehaviour
     private Transform cachedHead;
     private Canvas notificationCanvas;
     private GameObject notificationPanel;
-    private Coroutine hideRoutine;
     private float nextRefreshTime;
-    private bool hasPreviousState;
-    private bool pendingPublishingNotification;
-    private bool showingPriorityNotification;
-
-    private bool previousHandTracked;
-    private bool previousGestureHolding;
-    private bool previousDriveActive;
-    private bool previousPublishing;
-    private string previousStateText;
+    private float nextDirectionLogTime;
+    private string lastHudDirectionLabel;
+    private string hiddenTextNames = string.Empty;
+    private bool startupLogged;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void CreateRuntimeHud()
     {
-        var existingHud = FindFirstObjectByType<RoverControlStatusHUD>();
-        if (existingHud != null || instance != null || HasAnyHudInstanceIncludingInactive())
+        var existingHuds = FindObjectsByType<RoverControlStatusHUD>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
+        if (existingHuds.Length > 0)
+        {
+            existingHuds[0].gameObject.SetActive(true);
+            for (int i = 1; i < existingHuds.Length; i++)
+            {
+                if (existingHuds[i] != null)
+                {
+                    Destroy(existingHuds[i].gameObject);
+                }
+            }
+
+            return;
+        }
+
+        if (instance != null)
         {
             return;
         }
@@ -49,10 +68,6 @@ public class RoverControlStatusHUD : MonoBehaviour
 
     private void Awake()
     {
-        Debug.Log(
-            $"[RoverHUD] Awake instance={GetInstanceID()} " +
-            $"count={FindObjectsByType<RoverControlStatusHUD>(FindObjectsSortMode.None).Length}");
-
         if (instance != null && instance != this)
         {
             Destroy(gameObject);
@@ -62,7 +77,9 @@ public class RoverControlStatusHUD : MonoBehaviour
         instance = this;
         ResolveControllerOnce();
         EnsureNotificationView();
-        HideNotification();
+        NormalizeDirectionTextHierarchy();
+        UpdateRoverDirectionHud("STOP");
+        LogStartupState();
     }
 
     private void OnDestroy()
@@ -76,9 +93,7 @@ public class RoverControlStatusHUD : MonoBehaviour
     private void OnEnable()
     {
         nextRefreshTime = 0f;
-        hasPreviousState = false;
-        pendingPublishingNotification = false;
-        showingPriorityNotification = false;
+        lastHudDirectionLabel = null;
     }
 
     private void Update()
@@ -88,7 +103,7 @@ public class RoverControlStatusHUD : MonoBehaviour
             return;
         }
 
-        CheckStateTransitions();
+        UpdateDirectionDisplay();
         nextRefreshTime = Time.unscaledTime + 1f / Mathf.Max(1f, refreshRateHz);
     }
 
@@ -168,12 +183,80 @@ public class RoverControlStatusHUD : MonoBehaviour
         textRect.offsetMax = new Vector2(-24f, -16f);
 
         statusText = textObject.GetComponent<TextMeshProUGUI>();
+        statusText.gameObject.name = "RoverDirectionText";
         statusText.alignment = TextAlignmentOptions.Center;
         statusText.color = Color.white;
         statusText.fontSize = 34f;
         statusText.fontStyle = FontStyles.Bold;
         statusText.enableWordWrapping = false;
         statusText.raycastTarget = false;
+    }
+
+    private void NormalizeDirectionTextHierarchy()
+    {
+        if (statusText == null)
+        {
+            return;
+        }
+
+        statusText.gameObject.name = "RoverDirectionText";
+        statusText.text = "STOP";
+        statusText.alignment = TextAlignmentOptions.Center;
+        statusText.enableWordWrapping = false;
+        statusText.maxVisibleLines = 1;
+        statusText.gameObject.SetActive(true);
+
+        Transform textRoot = notificationPanel != null ? notificationPanel.transform : statusText.transform.parent;
+        if (textRoot == null)
+        {
+            hiddenTextNames = string.Empty;
+            return;
+        }
+
+        TMP_Text[] textComponents = textRoot.GetComponentsInChildren<TMP_Text>(true);
+        var hiddenNames = new List<string>();
+        for (int i = 0; i < textComponents.Length; i++)
+        {
+            TMP_Text textComponent = textComponents[i];
+            if (textComponent == null || textComponent == statusText)
+            {
+                continue;
+            }
+
+            hiddenNames.Add(textComponent.gameObject.name);
+            textComponent.text = string.Empty;
+            textComponent.gameObject.SetActive(false);
+        }
+
+        HideLegacyPopupObjectByName("RightHandMecanumPopupText", hiddenNames);
+        HideLegacyPopupObjectByName("RightHandMecanumPopupPanel", hiddenNames);
+        HideLegacyPopupObjectByName("RightHandMecanumPopupCanvas", hiddenNames);
+
+        hiddenTextNames = hiddenNames.Count > 0 ? string.Join(",", hiddenNames) : "None";
+    }
+
+    private void HideLegacyPopupObjectByName(string objectName, List<string> hiddenNames)
+    {
+        Transform[] transforms = FindObjectsByType<Transform>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
+        for (int i = 0; i < transforms.Length; i++)
+        {
+            Transform candidate = transforms[i];
+            if (candidate == null || candidate.gameObject.name != objectName)
+            {
+                continue;
+            }
+
+            TMP_Text text = candidate.GetComponent<TMP_Text>();
+            if (text != null)
+            {
+                text.text = string.Empty;
+            }
+
+            hiddenNames.Add(candidate.gameObject.name);
+            candidate.gameObject.SetActive(false);
+        }
     }
 
     private Transform ResolveHead()
@@ -192,7 +275,7 @@ public class RoverControlStatusHUD : MonoBehaviour
         return cachedHead;
     }
 
-    private void CheckStateTransitions()
+    private void UpdateDirectionDisplay()
     {
         if (roverController == null)
         {
@@ -204,128 +287,47 @@ public class RoverControlStatusHUD : MonoBehaviour
             return;
         }
 
-        bool handTracked = roverController.IsHandTracked;
-        bool gestureHolding = roverController.IsGestureHolding;
-        bool driveActive = roverController.IsDriveActive;
-        bool publishing = roverController.IsPublishing;
-        string stateText = roverController.CurrentStateText;
-
-        string message = SelectNotificationMessage(
-            handTracked,
-            gestureHolding,
-            driveActive,
-            publishing,
-            stateText);
-
-        if (!string.IsNullOrEmpty(message))
-        {
-            ShowNotification(message);
-        }
-
-        previousHandTracked = handTracked;
-        previousGestureHolding = gestureHolding;
-        previousDriveActive = driveActive;
-        previousPublishing = publishing;
-        previousStateText = stateText;
-        hasPreviousState = true;
+        bool active = roverController.IsDriveActive && roverController.IsCommandActive;
+        float dx = roverController.StrafeInput;
+        float dz = roverController.ForwardInput;
+        string label = GetRoverDirectionLabel(dx, dz, active);
+        UpdateRoverDirectionHud(label);
+        LogDirection(label, active, dx, dz);
     }
 
-    private string SelectNotificationMessage(
-        bool handTracked,
-        bool gestureHolding,
-        bool driveActive,
-        bool publishing,
-        string stateText)
+    private string GetRoverDirectionLabel(float dx, float dz, bool active)
     {
-        bool firstState = !hasPreviousState;
-        bool notReadyStarted = stateText == "NOT READY" && (firstState || previousStateText != "NOT READY");
-        bool handLost = hasPreviousState && previousHandTracked && !handTracked;
-        bool stopped = hasPreviousState
-            && (previousDriveActive || previousPublishing)
-            && !driveActive
-            && stateText != "NOT READY";
-        bool activeStarted = driveActive && (firstState || !previousDriveActive);
-        bool publishingStarted = publishing && (firstState || !previousPublishing);
-        bool holdStarted = gestureHolding && (firstState || !previousGestureHolding);
-        bool handDetected = handTracked && (firstState || !previousHandTracked);
-        bool readyStarted = stateText == "READY" && (firstState || previousStateText != "READY");
-
-        if (notReadyStarted)
+        if (!active)
         {
-            pendingPublishingNotification = publishingStarted;
-            return "ROVER CONTROL NOT READY";
+            return "STOP";
         }
 
-        if (handLost)
+        float absDx = Mathf.Abs(dx);
+        float absDz = Mathf.Abs(dz);
+        float threshold = Mathf.Max(0f, hudDirectionThreshold);
+        if (absDx < threshold && absDz < threshold)
         {
-            pendingPublishingNotification = publishingStarted;
-            return "RIGHT HAND NOT DETECTED";
+            return "STOP";
         }
 
-        if (stopped)
+        if (absDz >= absDx)
         {
-            pendingPublishingNotification = publishingStarted;
-            return "ROVER CONTROL STOPPED";
+            return dz > 0f ? "FORWARD" : "BACK";
         }
 
-        if (activeStarted)
-        {
-            pendingPublishingNotification = publishingStarted;
-            return "ROVER CONTROL ACTIVE";
-        }
-
-        if (pendingPublishingNotification && publishing && !showingPriorityNotification)
-        {
-            pendingPublishingNotification = false;
-            return "COMMAND PUBLISHING";
-        }
-
-        if (publishingStarted)
-        {
-            if (showingPriorityNotification)
-            {
-                pendingPublishingNotification = true;
-                return string.Empty;
-            }
-
-            pendingPublishingNotification = false;
-            return "COMMAND PUBLISHING";
-        }
-
-        if (holdStarted)
-        {
-            pendingPublishingNotification = publishingStarted;
-            return "HOLD TO ACTIVATE";
-        }
-
-        if (handDetected)
-        {
-            pendingPublishingNotification = publishingStarted;
-            return "RIGHT HAND DETECTED";
-        }
-
-        if (readyStarted)
-        {
-            pendingPublishingNotification = publishingStarted;
-            return "ROVER CONTROL READY";
-        }
-
-        return string.Empty;
+        return dx > 0f ? "RIGHT" : "LEFT";
     }
 
-    private void ShowNotification(string message)
+    private void UpdateRoverDirectionHud(string label)
     {
-        if (statusText == null)
+        label = SanitizeDirectionLabel(label);
+        if (statusText == null || label == lastHudDirectionLabel)
         {
             return;
         }
 
-        Debug.Log(
-            $"[RoverHUD] ShowNotification instance={GetInstanceID()} " +
-            $"message={message}");
-
-        statusText.text = message;
-        showingPriorityNotification = message != "COMMAND PUBLISHING";
+        statusText.text = label;
+        lastHudDirectionLabel = label;
 
         if (notificationCanvas != null)
         {
@@ -336,48 +338,51 @@ public class RoverControlStatusHUD : MonoBehaviour
         {
             notificationPanel.SetActive(true);
         }
-
-        if (hideRoutine != null)
-        {
-            StopCoroutine(hideRoutine);
-            hideRoutine = null;
-        }
-
-        hideRoutine = StartCoroutine(HideAfterDelay());
     }
 
-    private IEnumerator HideAfterDelay()
+    private static string SanitizeDirectionLabel(string label)
     {
-        yield return new WaitForSecondsRealtime(notificationDurationSec);
-        hideRoutine = null;
-        HideNotification();
-
-        if (pendingPublishingNotification && roverController != null && roverController.IsPublishing)
+        if (string.IsNullOrEmpty(label))
         {
-            pendingPublishingNotification = false;
-            ShowNotification("COMMAND PUBLISHING");
+            return "STOP";
         }
+
+        string normalizedLabel = label.Trim().ToUpperInvariant();
+        return AllowedDirectionLabels.Contains(normalizedLabel) ? normalizedLabel : "STOP";
     }
 
-    private void HideNotification()
+    private void LogDirection(string label, bool active, float dx, float dz)
     {
-        showingPriorityNotification = false;
-
-        if (notificationPanel != null)
+        if (!enableDirectionLog || Time.unscaledTime < nextDirectionLogTime)
         {
-            notificationPanel.SetActive(false);
+            return;
         }
 
-        if (notificationCanvas != null)
-        {
-            notificationCanvas.enabled = false;
-        }
+        Debug.Log(
+            "[RoverHUDDirection] label=" + label +
+            " active=" + active +
+            " dx=" + dx.ToString("F3") +
+            " dz=" + dz.ToString("F3"));
+        nextDirectionLogTime = Time.unscaledTime + 0.5f;
     }
 
-    private static bool HasAnyHudInstanceIncludingInactive()
+    private void LogStartupState()
     {
-        return FindObjectsByType<RoverControlStatusHUD>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None).Length > 0;
+        if (startupLogged)
+        {
+            return;
+        }
+
+        startupLogged = true;
+        int activeInstances = FindObjectsByType<RoverControlStatusHUD>(
+            FindObjectsInactive.Exclude,
+            FindObjectsSortMode.None).Length;
+        string directionTextName = statusText != null ? statusText.gameObject.name : "None";
+        string currentLabel = SanitizeDirectionLabel(lastHudDirectionLabel);
+        Debug.Log(
+            "[RoverHUD] instances=" + activeInstances +
+            " directionText=" + directionTextName +
+            " hiddenTexts=" + hiddenTextNames +
+            " label=" + currentLabel);
     }
 }

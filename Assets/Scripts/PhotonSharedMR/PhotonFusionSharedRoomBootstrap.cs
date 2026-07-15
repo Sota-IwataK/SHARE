@@ -138,6 +138,7 @@ public class PhotonFusionSharedRoomBootstrap : MonoBehaviour
             runner = gameObject.AddComponent<NetworkRunner>();
         }
 
+        EnsureSharedRobotTargetPublisher();
         runner.ProvideInput = false;
         runner.AddCallbacks(this);
 
@@ -198,6 +199,7 @@ public class PhotonFusionSharedRoomBootstrap : MonoBehaviour
 
     public void LeaveRoom()
     {
+        RosTopicProvider.ReleaseLocalState("LeaveRoom");
         RequestRunnerShutdown("LeaveRoom", true);
     }
 
@@ -311,6 +313,14 @@ public class PhotonFusionSharedRoomBootstrap : MonoBehaviour
         return activeSessionSettings;
     }
 
+    private void EnsureSharedRobotTargetPublisher()
+    {
+        if (GetComponent<SharedRobotTargetPublisher>() == null)
+        {
+            gameObject.AddComponent<SharedRobotTargetPublisher>();
+        }
+    }
+
     public void OnConnectedToServer(NetworkRunner connectedRunner) { }
     public void OnConnectFailed(NetworkRunner failedRunner, NetAddress remoteAddress, NetConnectFailedReason reason)
     {
@@ -362,6 +372,7 @@ public class PhotonFusionSharedRoomBootstrap : MonoBehaviour
         lastError = shutdownReason.ToString();
         PhotonSharedMRCalibrationGuard.LogRunnerShutdown(shutdownReason.ToString());
         Debug.Log("[PhotonFusionSharedRoomBootstrap] Shutdown: " + shutdownReason);
+        RosTopicProvider.ReleaseLocalState("OnShutdown");
         spawnedAvatars.Clear();
         runner = null;
         nextDisplayPlayerNumber = 1;
@@ -586,6 +597,7 @@ public class PhotonFusionSharedRoomBootstrap : MonoBehaviour
 
     public void LeaveRoom()
     {
+        RosTopicProvider.ReleaseLocalState("LeaveRoomFusionDisabled");
         lastJoinStatus = "FusionDisabled";
         lastError = "Photon Fusion 2 is not active.";
     }

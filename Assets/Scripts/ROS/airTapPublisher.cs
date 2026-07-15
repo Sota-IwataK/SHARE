@@ -18,6 +18,7 @@ public class airTapPublisher : MonoBehaviour
     private ROSConnection ros;
     private RosString grip;
     private string registeredTopic;
+    private string resolvedTopicName;
     private float nextPublishTime;
 
     private void OnEnable()
@@ -75,12 +76,22 @@ public class airTapPublisher : MonoBehaviour
         ros ??= ROSConnection.GetOrCreateInstance();
         if (ros == null) return;
 
-        if (registeredTopic != topicName)
+        if (!RosTopicProvider.TryResolveTopic(
+                RosInputTopicKey.GripperCommand,
+                topicName,
+                out resolvedTopicName,
+                out _))
         {
-            ros.RegisterPublisher<RosString>(topicName);
-            registeredTopic = topicName;
+            registered = false;
+            return;
+        }
+
+        if (registeredTopic != resolvedTopicName)
+        {
+            ros.RegisterPublisher<RosString>(resolvedTopicName);
+            registeredTopic = resolvedTopicName;
             registered = true;
-            Debug.Log("[airTapPublisher] RegisterPublisher " + topicName);
+            Debug.Log("[airTapPublisher] RegisterPublisher " + resolvedTopicName);
         }
         else
         {
@@ -99,12 +110,13 @@ public class airTapPublisher : MonoBehaviour
         if (!Application.isPlaying) return;
 
         EnsurePublisher();
-        if (ros == null) return;
+        if (ros == null || !registered || string.IsNullOrWhiteSpace(resolvedTopicName)) return;
+        if (!RosTopicProvider.CanPublish(RosInputTopicKey.GripperCommand, out _)) return;
         if (grip == null) InitializeMessage();
 
         outputdata = command;
         grip.data = outputdata;
-        ros.Publish(topicName, grip);
+        ros.Publish(resolvedTopicName, grip);
         publishCount++;
     }
 }

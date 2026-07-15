@@ -205,6 +205,7 @@ public class PhotonSharedMRDebugPanel : MonoBehaviour
         Append("Coordinate alignment", detectedBottleBridge != null ? detectedBottleBridge.CoordinateAlignmentStatus : "MissingBridge");
         Append("Current Role", ResolveCurrentRole().ToString());
         Append("DeviceType", ResolveDeviceType().ToString());
+        AppendAvatarRoster(avatars);
         Append("FixedRegion", bootstrap != null ? bootstrap.DebugFixedRegion : "Unavailable");
         Append("Protocol", bootstrap != null ? bootstrap.DebugProtocol : "Unavailable");
         Append("LastJoinStatus", bootstrap != null ? bootstrap.LastJoinStatus : "MissingBootstrap");
@@ -251,6 +252,43 @@ public class PhotonSharedMRDebugPanel : MonoBehaviour
         builder.Append(label);
         builder.Append(": ");
         builder.AppendLine(value);
+    }
+
+    private void AppendAvatarRoster(NetworkUserAvatar[] avatars)
+    {
+        if (avatars == null || avatars.Length == 0)
+        {
+            Append("AvatarRoster", "None");
+            return;
+        }
+
+        for (int i = 0; i < avatars.Length; i++)
+        {
+            NetworkUserAvatar avatar = avatars[i];
+            if (avatar == null)
+            {
+                continue;
+            }
+
+            Append("Avatar[" + i + "]",
+                "PlayerRef=" + ResolveAvatarPlayerRef(avatar)
+                + " ParticipantId=" + avatar.ParticipantId
+                + " RobotTarget=" + avatar.RobotTarget
+                + " Role=" + avatar.CurrentRole
+                + " DeviceType=" + avatar.DeviceType
+                + " UserName=" + avatar.CurrentUserName);
+        }
+    }
+
+    private static string ResolveAvatarPlayerRef(NetworkUserAvatar avatar)
+    {
+#if FUSION_WEAVER && FUSION2
+        return avatar != null && avatar.Object != null
+            ? avatar.Object.InputAuthority.ToString()
+            : "None";
+#else
+        return "Unavailable";
+#endif
     }
 
     private static string EmptyAsNone(string value)
