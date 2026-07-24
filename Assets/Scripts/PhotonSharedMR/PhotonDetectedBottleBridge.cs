@@ -109,7 +109,6 @@ public class PhotonDetectedBottleBridge : MonoBehaviour
             + " position=" + FormatVector(detectedPose.position)
             + " sourceFrame=" + lastDetectionSourceFrame);
 
-        UpdateSharedBottleFromDetection(detectedPose);
     }
 
     public bool TryGetAuthorityDetectedBottlePose(out UnityEngine.Pose pose)

@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections.Generic;
 
 [DisallowMultipleComponent]
 public class PhotonSharedBottleVisualController : MonoBehaviour
@@ -97,7 +98,27 @@ public class PhotonSharedBottleVisualController : MonoBehaviour
 
     private void CacheRenderers()
     {
-        renderers = GetComponentsInChildren<Renderer>(true);
+        Renderer[] discovered = GetComponentsInChildren<Renderer>(true);
+        BottleTargetEffectController targetEffect = GetComponent<BottleTargetEffectController>();
+        BottleOutOfRangeEffectController rangeEffect = GetComponent<BottleOutOfRangeEffectController>();
+        List<Renderer> bottleRenderers = new List<Renderer>(discovered.Length);
+        for (int i = 0; i < discovered.Length; i++)
+        {
+            Renderer renderer = discovered[i];
+            if (renderer == null
+                || (targetEffect != null
+                    && targetEffect.EffectRoot != null
+                    && renderer.transform.IsChildOf(targetEffect.EffectRoot))
+                || (rangeEffect != null
+                    && renderer.transform.name != null
+                    && IsUnderNamedRoot(renderer.transform, "LocalOutOfRangeEffectRoot"))
+                || IsUnderNamedRoot(renderer.transform, "LocalTargetConflictEffectRoot"))
+            {
+                continue;
+            }
+            bottleRenderers.Add(renderer);
+        }
+        renderers = bottleRenderers.ToArray();
         propertyBlock ??= new MaterialPropertyBlock();
         baseColors = new Color[renderers.Length];
 
@@ -118,6 +139,15 @@ public class PhotonSharedBottleVisualController : MonoBehaviour
                 baseColors[i] = Color.white;
             }
         }
+    }
+
+    private static bool IsUnderNamedRoot(Transform item, string rootName)
+    {
+        for (Transform current = item; current != null; current = current.parent)
+        {
+            if (current.name == rootName) return true;
+        }
+        return false;
     }
 
     private void ApplyNormalVisual(bool force)

@@ -22,6 +22,10 @@ GameObject:
   - component: {fileID: 6807448841172580019}
   - component: {fileID: 1945920473128951565}
   - component: {fileID: 3308008832348815862}
+  - component: {fileID: 3308008832348815863}
+  - component: {fileID: 3308008832348815864}
+  - component: {fileID: 3308008832348815865}
+  - component: {fileID: 3308008832348815866}
   - component: {fileID: 6608513726008579091}
   m_Layer: 8
   m_Name: PhotonSharedBottle_PREHUB_bottle1
@@ -39,7 +43,7 @@ Transform:
   m_GameObject: {fileID: 7602445622709225717}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -0.834, y: 0, z: 0.815}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 0.8, y: 0.8, z: 0.8}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -473,6 +477,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6b7a320f8982e094aba1173f0da7ef1a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  enableLegacyTargetUI: 0
   <IsInside>k__BackingField: 0
   BottleHitMapper: {fileID: 0}
   irmPublisher: {fileID: 0}
@@ -532,6 +537,101 @@ MonoBehaviour:
   remoteGrabTint: {r: 0.22, g: 0.22, b: 0.22, a: 1}
   staleTint: {r: 0.36, g: 0.44, b: 0.5, a: 1}
   enableDebugLogs: 0
+--- !u!114 &3308008832348815864
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7602445622709225717}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f678b24a6b1743e1b2f99091b51a9fb8, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  warningRing: {fileID: 0}
+  warningBracketRoot: {fileID: 0}
+  warningMarker: {fileID: 0}
+  outOfRangeLabel: {fileID: 0}
+  outOfRangeLabelRoot: {fileID: 0}
+  pulseFrequency: 1.4
+  pulseScaleMin: 0.95
+  pulseScaleMax: 1.15
+  fadeDuration: 0.15
+  ringRadiusMultiplier: 1.35
+  labelHeightOffset: 0.08
+  billboardWarning: 1
+  hmdTransform: {fileID: 0}
+  billboardLabelToHmd: 1
+  smoothBillboardRotation: 1
+  billboardRotationSpeed: 12
+  billboardRotationOffset: {x: 0, y: 180, z: 0}
+  warningColor: {r: 1, g: 0.12, b: 0.04, a: 0.96}
+  enableDebugLogs: 1
+--- !u!114 &3308008832348815865
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7602445622709225717}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ae85dbab420a45ccb98877d2ccfde981, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  disconnectedOwnerCheckIntervalSec: 1
+  enableDebugLogs: 1
+--- !u!114 &3308008832348815866
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7602445622709225717}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e2f49ba17e28416b85015c9240dce3ad, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  heightOffset: 0.12
+  fadeDuration: 0.15
+  hmdTransform: {fileID: 0}
+  conflictColor: {r: 1, g: 0.45, b: 0.08, a: 1}
+  enableDebugLogs: 1
+--- !u!114 &3308008832348815863
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7602445622709225717}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7dd53a2b75d449318526961391153f22, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  candidateRing: {fileID: 0}
+  selectedRing: {fileID: 0}
+  bracketRoot: {fileID: 0}
+  selectedMarker: {fileID: 0}
+  confirmationWave: {fileID: 0}
+  candidatePulseFrequency: 1.5
+  candidateMinScale: 0.9
+  candidateMaxScale: 1.12
+  candidateBracketTravel: 0.03
+  selectedConfirmationDuration: 0.25
+  selectedConfirmationScale: 1.45
+  selectedIdlePulseFrequency: 0.6
+  fadeOutDuration: 0.15
+  autoSizeFromBounds: 1
+  ringRadiusMultiplier: 1.25
+  billboardBrackets: 1
+  hmdTransform: {fileID: 0}
+  candidateColor: {r: 1, g: 0.82, b: 0.15, a: 0.88}
+  selectedColor: {r: 0.2, g: 1, b: 0.42, a: 0.96}
+  selectedOutOfRangeColor: {r: 1, g: 0.12, b: 0.08, a: 1}
+  enableDebugLogs: 1
 --- !u!114 &6608513726008579091
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -550,4 +650,5 @@ MonoBehaviour:
   NestedObjects: []
   NetworkedBehaviours:
   - {fileID: 1945920473128951565}
+  - {fileID: 3308008832348815865}
   ForceRemoteRenderTimeframe: 0

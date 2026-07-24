@@ -4,6 +4,9 @@ using UnityEngine;
 
 public class BottleAreaState : MonoBehaviour
 {
+    [Header("Legacy Target UI")]
+    [SerializeField] private bool enableLegacyTargetUI = true;
+
     // 現在の inside / outside の状態
     [field: SerializeField, Tooltip("エリア内かどうか（読み取り専用）")]
     public bool IsInside { get; private set; }
@@ -30,6 +33,9 @@ public class BottleAreaState : MonoBehaviour
     private GameObject currentTargetUI = null;
     public bool isHitted = false;
     private bool isTransparent = false;
+    private bool legacyTargetUISuppressed;
+    private bool legacyDisabledLogged;
+    private bool legacyCreationSuppressedLogged;
     private bool hasPublished = false;   // 送信済みフラグ
 
  
@@ -53,6 +59,7 @@ public class BottleAreaState : MonoBehaviour
 
     void Awake()
     {
+        InitializeLegacyTargetUIState();
         // 1) Renderer の sharedMaterial をコピーして独立
         var rend = GetComponent<Renderer>();
         mat = new Material(rend.sharedMaterial);
@@ -85,6 +92,16 @@ public class BottleAreaState : MonoBehaviour
         IsInside = true;
     }
 
+    void OnEnable()
+    {
+        InitializeLegacyTargetUIState();
+    }
+
+    void Start()
+    {
+        InitializeLegacyTargetUIState();
+    }
+
 
     public void SetInside(bool isInside)
     {
@@ -95,9 +112,22 @@ public class BottleAreaState : MonoBehaviour
         IsHit = hit;
     }
 
+    public void SetLegacyTargetVisualSuppressed(bool suppressed)
+    {
+        bool resolvedSuppressed = !enableLegacyTargetUI || suppressed;
+        if (legacyTargetUISuppressed == resolvedSuppressed) return;
+        legacyTargetUISuppressed = resolvedSuppressed;
+        RemoveLegacyTargetUIImmediate();
+    }
+
 
     public void Update()
     {
+        if (!enableLegacyTargetUI)
+        {
+            legacyTargetUISuppressed = true;
+            RemoveLegacyTargetUIImmediate();
+        }
 
         GameObject globalHit = BottleHitMapper != null ? BottleHitMapper.hitObject : null;
         bool isThisHit = (globalHit == this.gameObject);
@@ -186,6 +216,7 @@ public class BottleAreaState : MonoBehaviour
 
     public void UIset()
     {
+        if (!CanCreateLegacyTargetUI("Inside")) return;
         if (currentTargetUI != null)
         {
             Destroy(currentTargetUI);
@@ -219,6 +250,7 @@ public class BottleAreaState : MonoBehaviour
 
     public void UIset_outside()
     {
+        if (!CanCreateLegacyTargetUI("Outside")) return;
         if (currentTargetUI != null)
         {
             Destroy(currentTargetUI);
@@ -252,12 +284,60 @@ public class BottleAreaState : MonoBehaviour
 
     public void DestroyUI()
     {
-        if (currentTargetUI != null)
-        {
-            Destroy(currentTargetUI);
-            currentTargetUI = null;
-        }
+        RemoveLegacyTargetUIImmediate();
         isHitted = false;
+    }
+
+    private void InitializeLegacyTargetUIState()
+    {
+        legacyTargetUISuppressed = !enableLegacyTargetUI;
+        if (!enableLegacyTargetUI)
+        {
+            RemoveLegacyTargetUIImmediate();
+            if (!legacyDisabledLogged)
+            {
+                legacyDisabledLogged = true;
+                Debug.Log("[BottleAreaState] Legacy target UI disabled for shared bottle networkId="
+                    + NetworkIdText(), this);
+            }
+        }
+    }
+
+    private bool CanCreateLegacyTargetUI(string state)
+    {
+        if (enableLegacyTargetUI && !legacyTargetUISuppressed)
+        {
+            legacyCreationSuppressedLogged = false;
+            return true;
+        }
+
+        RemoveLegacyTargetUIImmediate();
+        if (!legacyCreationSuppressedLogged)
+        {
+            legacyCreationSuppressedLogged = true;
+            Debug.Log("[BottleAreaState] Legacy target UI creation suppressed state="
+                + state + " networkId=" + NetworkIdText(), this);
+        }
+        return false;
+    }
+
+    private void RemoveLegacyTargetUIImmediate()
+    {
+        if (currentTargetUI == null) return;
+        currentTargetUI.SetActive(false);
+        Destroy(currentTargetUI);
+        currentTargetUI = null;
+        isHitted = false;
+        Debug.Log("[BottleAreaState] Legacy target UI removed networkId="
+            + NetworkIdText(), this);
+    }
+
+    private string NetworkIdText()
+    {
+        NetworkedSharedSceneObject shared = GetComponent<NetworkedSharedSceneObject>();
+        return shared != null && shared.Object != null && shared.Object.Id.IsValid
+            ? shared.Object.Id.ToString()
+            : "Invalid";
     }
 
     public float[] IRM_ROS_SelectMessage()

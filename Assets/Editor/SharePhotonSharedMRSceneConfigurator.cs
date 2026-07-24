@@ -120,7 +120,7 @@ public static class SharePhotonSharedMRSceneConfigurator
         bootstrap.initialRole = SharedUserRole.ManipulatorOperator;
         bootstrap.defaultSessionSettings = PhotonSharedMRSessionSettings.CreateDefault();
         bootstrap.defaultSessionSettings.roomName = PhotonSharedMRSessionSettings.DefaultRoomName;
-        bootstrap.useAutoHostOrClient = true;
+        bootstrap.useAutoHostOrClient = false;
         bootstrap.networkUserAvatarPrefab = avatarPrefab;
         bootstrap.headSource = Camera.main != null ? Camera.main.transform : null;
         bootstrap.leftHandSource = FindTransform("LeftHand") ?? FindTransform("XRHand_Palm");

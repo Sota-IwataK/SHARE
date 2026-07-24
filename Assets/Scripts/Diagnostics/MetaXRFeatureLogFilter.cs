@@ -63,7 +63,7 @@ public sealed class SelectiveUnityLogFilter : ILogHandler
 
     private static bool ShouldSuppress(LogType logType, string format, object[] args)
     {
-        bool suppressible = logType == LogType.Log || logType == LogType.Warning;
+        bool suppressible = logType == LogType.Log;
         if (!suppressible)
         {
             return false;

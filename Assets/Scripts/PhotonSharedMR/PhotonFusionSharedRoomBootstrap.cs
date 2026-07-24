@@ -23,7 +23,8 @@ public class PhotonFusionSharedRoomBootstrap : MonoBehaviour
     public int maxPlayers = 8;
     public SharedUserRole initialRole = SharedUserRole.ManipulatorOperator;
     public PhotonSharedMRSessionSettings defaultSessionSettings = PhotonSharedMRSessionSettings.CreateDefault();
-    public bool useAutoHostOrClient = true;
+    [Tooltip("Legacy compatibility field. SHARE rooms always start with GameMode.Shared.")]
+    public bool useAutoHostOrClient;
 
     [Header("Prefabs")]
     public GameObject networkUserAvatarPrefab;
@@ -36,6 +37,7 @@ public class PhotonFusionSharedRoomBootstrap : MonoBehaviour
     private string lastJoinStatus = "NotStarted";
     private string lastError = string.Empty;
     private bool applicationQuitting;
+    private bool sharedModeSelected;
 
     public string LastJoinStatus => lastJoinStatus;
     public string LastError => lastError;
@@ -49,7 +51,8 @@ public class PhotonFusionSharedRoomBootstrap : MonoBehaviour
     public ShareDeviceType DebugDeviceType => ResolveDebugDeviceType();
     public string DebugFixedRegion => ResolveDebugFixedRegion();
     public string DebugProtocol => ResolveDebugProtocol();
-    public bool UsesAutoHostOrClient => useAutoHostOrClient;
+    public bool UsesAutoHostOrClient => false;
+    public bool SharedModeSelected => sharedModeSelected || IsRunning;
 
 #if FUSION_WEAVER && FUSION2
     private NetworkRunner runner;
@@ -63,8 +66,15 @@ public class PhotonFusionSharedRoomBootstrap : MonoBehaviour
     private bool lastShutdownRequestExplicitLeave;
     private bool lastShutdownRequestApplicationQuit;
 
-    public NetworkRunner Runner => runner;
-    public bool IsRunning => runner != null && runner.IsRunning;
+    public NetworkRunner Runner => ResolveCurrentRunner();
+    public bool IsRunning
+    {
+        get
+        {
+            NetworkRunner currentRunner = ResolveCurrentRunner();
+            return currentRunner != null && currentRunner.IsRunning;
+        }
+    }
 
     private async void Start()
     {
@@ -102,7 +112,9 @@ public class PhotonFusionSharedRoomBootstrap : MonoBehaviour
 
     public async Task StartSharedRoom(PhotonSharedMRSessionSettings sessionSettings)
     {
-        if (runner != null && runner.IsRunning)
+        sharedModeSelected = true;
+        NetworkRunner currentRunner = ResolveCurrentRunner();
+        if (currentRunner != null && currentRunner.IsRunning)
         {
             lastJoinStatus = "AlreadyRunning";
             lastError = string.Empty;
@@ -166,7 +178,7 @@ public class PhotonFusionSharedRoomBootstrap : MonoBehaviour
         {
             result = await runner.StartGame(new StartGameArgs
             {
-                GameMode = useAutoHostOrClient ? GameMode.AutoHostOrClient : GameMode.Shared,
+                GameMode = GameMode.Shared,
                 SessionName = roomName,
                 PlayerCount = maxPlayers,
                 Scene = sceneInfo,
@@ -187,6 +199,8 @@ public class PhotonFusionSharedRoomBootstrap : MonoBehaviour
         {
             lastJoinStatus = "Failed";
             lastError = "reason=" + result.ShutdownReason + " message=" + result.ErrorMessage;
+            CommunicationHealthMonitor.SetConnectionState(
+                CommunicationChannel.Photon, false, result.ShutdownReason.ToString());
             Debug.LogError("[PhotonFusionSharedRoomBootstrap] Failed to join room " + roomName
                 + " " + lastError);
             return;
@@ -194,11 +208,18 @@ public class PhotonFusionSharedRoomBootstrap : MonoBehaviour
 
         lastJoinStatus = "Joined";
         lastError = string.Empty;
-        Debug.Log("[PhotonFusionSharedRoomBootstrap] Joined shared room " + roomName);
+        useAutoHostOrClient = false;
+        CommunicationHealthMonitor.SetConnectionState(
+            CommunicationChannel.Photon, true, "Joined");
+        Debug.Log("[PhotonFusionSharedRoomBootstrap] Joined shared room " + roomName
+            + " gameMode=" + runner.GameMode
+            + " topology=" + runner.Topology
+            + " localPlayer=" + runner.LocalPlayer);
     }
 
     public void LeaveRoom()
     {
+        sharedModeSelected = false;
         RosTopicProvider.ReleaseLocalState("LeaveRoom");
         RequestRunnerShutdown("LeaveRoom", true);
     }
@@ -327,6 +348,8 @@ public class PhotonFusionSharedRoomBootstrap : MonoBehaviour
         lastJoinStatus = "ConnectFailed";
         lastError = reason.ToString();
         lastDisconnectReason = "ConnectFailed:" + reason;
+        CommunicationHealthMonitor.SetConnectionState(
+            CommunicationChannel.Photon, false, reason.ToString());
         Debug.LogWarning("[PhotonFusionSharedRoomBootstrap] PHOTON_FUSION_CONNECT_FAILED"
             + " reason=" + reason
             + " remoteAddress=" + remoteAddress
@@ -340,6 +363,8 @@ public class PhotonFusionSharedRoomBootstrap : MonoBehaviour
         lastJoinStatus = "Disconnected";
         lastError = reason.ToString();
         lastDisconnectReason = reason.ToString();
+        CommunicationHealthMonitor.SetConnectionState(
+            CommunicationChannel.Photon, false, reason.ToString());
         Debug.LogWarning("[PhotonFusionSharedRoomBootstrap] PHOTON_FUSION_DISCONNECTED"
             + " disconnectReason=" + reason
             + BuildFusionRunnerDiagnostics(disconnectedRunner, lastJoinStatus)
@@ -358,6 +383,8 @@ public class PhotonFusionSharedRoomBootstrap : MonoBehaviour
     public void OnShutdown(NetworkRunner shutdownRunner, ShutdownReason shutdownReason)
     {
         string joinStatusBeforeShutdown = lastJoinStatus;
+        CommunicationHealthMonitor.SetConnectionState(
+            CommunicationChannel.Photon, false, shutdownReason.ToString());
         Debug.LogWarning("[PhotonFusionSharedRoomBootstrap] PHOTON_FUSION_SHUTDOWN"
             + " reason=" + shutdownReason
             + " shutdownReason=" + shutdownReason
@@ -377,6 +404,30 @@ public class PhotonFusionSharedRoomBootstrap : MonoBehaviour
         runner = null;
         nextDisplayPlayerNumber = 1;
         nextObserverDisplayNumber = 1;
+    }
+
+    private NetworkRunner ResolveCurrentRunner()
+    {
+        if (runner != null && runner.IsRunning)
+        {
+            return runner;
+        }
+
+        NetworkRunner attachedRunner = GetComponent<NetworkRunner>();
+        if (attachedRunner != null && attachedRunner.IsRunning)
+        {
+            if (runner != attachedRunner)
+            {
+                runner = attachedRunner;
+                Debug.Log("[PhotonFusionSharedRoomBootstrap] Reacquired running NetworkRunner"
+                    + " gameObject=" + gameObject.name
+                    + " session=" + (runner.SessionInfo.IsValid ? runner.SessionInfo.Name : "None"));
+            }
+
+            return runner;
+        }
+
+        return runner;
     }
     public void OnUserSimulationMessage(NetworkRunner messageRunner, SimulationMessagePtr message) { }
 
@@ -574,6 +625,7 @@ public class PhotonFusionSharedRoomBootstrap : MonoBehaviour
 
     public System.Threading.Tasks.Task StartSharedRoom(PhotonSharedMRSessionSettings sessionSettings)
     {
+        sharedModeSelected = true;
         if (sessionSettings != null)
         {
             roomName = sessionSettings.roomName;
@@ -597,6 +649,7 @@ public class PhotonFusionSharedRoomBootstrap : MonoBehaviour
 
     public void LeaveRoom()
     {
+        sharedModeSelected = false;
         RosTopicProvider.ReleaseLocalState("LeaveRoomFusionDisabled");
         lastJoinStatus = "FusionDisabled";
         lastError = "Photon Fusion 2 is not active.";
@@ -624,7 +677,7 @@ public class PhotonFusionSharedRoomBootstrap : MonoBehaviour
     private bool ResolveRunnerExists()
     {
 #if FUSION_WEAVER && FUSION2
-        return runner != null;
+        return ResolveCurrentRunner() != null;
 #else
         return false;
 #endif

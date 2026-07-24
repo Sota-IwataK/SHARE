@@ -1767,6 +1767,7 @@ MonoBehaviour:
   defaultSettings:
     userName: SHARE User
     isHostLikeUser: 1
+    participantId: 0
     deviceType: 0
     role: 0
     robotTarget: 0
@@ -1792,6 +1793,9 @@ MonoBehaviour:
   roleDropdown: {fileID: 0}
   robotTargetDropdown: {fileID: 0}
   roomNameInput: {fileID: 0}
+  user1ParticipantButton: {fileID: 0}
+  user2ParticipantButton: {fileID: 0}
+  user3ParticipantButton: {fileID: 0}
   amirRobotButton: {fileID: 1962470229}
   roverRobotButton: {fileID: 846078198}
   droneRobotButton: {fileID: 615348545}
@@ -3370,7 +3374,7 @@ MonoBehaviour:
   m_fontMaterials: []
   m_fontColor32:
     serializedVersion: 2
-    rgba: 4294967295
+    rgba: 4285762815
   m_fontColor: {r: 1, g: 0.55, b: 0.45, a: 1}
   m_enableVertexGradient: 0
   m_colorMode: 3
@@ -3383,7 +3387,7 @@ MonoBehaviour:
   m_spriteAsset: {fileID: 0}
   m_tintAllSprites: 0
   m_StyleSheet: {fileID: 0}
-  m_TextStyleHashCode: 0
+  m_TextStyleHashCode: -1183493901
   m_overrideHtmlColors: 0
   m_faceColor:
     serializedVersion: 2
@@ -4069,7 +4073,7 @@ MonoBehaviour:
   m_spriteAsset: {fileID: 0}
   m_tintAllSprites: 0
   m_StyleSheet: {fileID: 0}
-  m_TextStyleHashCode: 0
+  m_TextStyleHashCode: -1183493901
   m_overrideHtmlColors: 0
   m_faceColor:
     serializedVersion: 2
@@ -6009,7 +6013,7 @@ MonoBehaviour:
   m_spriteAsset: {fileID: 0}
   m_tintAllSprites: 0
   m_StyleSheet: {fileID: 0}
-  m_TextStyleHashCode: 0
+  m_TextStyleHashCode: -1183493901
   m_overrideHtmlColors: 0
   m_faceColor:
     serializedVersion: 2
@@ -6201,7 +6205,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &173331874
 Transform:
   m_ObjectHideFlags: 0
@@ -6465,7 +6469,7 @@ MonoBehaviour:
   m_spriteAsset: {fileID: 0}
   m_tintAllSprites: 0
   m_StyleSheet: {fileID: 0}
-  m_TextStyleHashCode: 0
+  m_TextStyleHashCode: -1183493901
   m_overrideHtmlColors: 0
   m_faceColor:
     serializedVersion: 2
@@ -11491,6 +11495,7 @@ Transform:
   - {fileID: 1660254340}
   - {fileID: 637701895}
   - {fileID: 669613320}
+  - {fileID: 925656175}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &273870642
@@ -13538,7 +13543,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 1344036141}
+  - {fileID: 2075928478}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -14219,11 +14224,16 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   enableSharedBottleSpawn: 1
   bootstrap: {fileID: 925656176}
+  detectedBottleSubscriber: {fileID: 976219406}
   networkBottlePrefab: {fileID: 7602445622709225717, guid: b3e4e3b5fb03d594ca7ef9c20009dfb2, type: 3}
   spawnAnchor: {fileID: 51949648}
   spawnDistance: 0.65
   spawnVerticalOffset: -0.08
   maxSharedBottleCount: 8
+  stopRosPoseAfterFirstGrab: 1
+  rosPoseUpdateRateHz: 10
+  rosPosePositionThresholdM: 0.02
+  rosPoseRotationThresholdDeg: 5
   enableSpawnControls: 0
   controlsDistance: 0.95
   controlsVerticalOffset: -0.42
@@ -15740,7 +15750,7 @@ Transform:
   m_GameObject: {fileID: 384755664}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0.0299, y: 0.0496, z: 0.0108}
+  m_LocalPosition: {x: 0.0344, y: 0.0521, z: 0.0108}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -18648,7 +18658,7 @@ MonoBehaviour:
   m_spriteAsset: {fileID: 0}
   m_tintAllSprites: 0
   m_StyleSheet: {fileID: 0}
-  m_TextStyleHashCode: 0
+  m_TextStyleHashCode: -1183493901
   m_overrideHtmlColors: 0
   m_faceColor:
     serializedVersion: 2
@@ -20016,7 +20026,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &522440204
 Transform:
   m_ObjectHideFlags: 0
@@ -22821,11 +22831,17 @@ MonoBehaviour:
   useMrtkHandFallback: 1
   useControllerGripFallback: 1
   ovrGripStrengthThreshold: 0.75
+  ovrGripReleaseThreshold: 0.55
   controllerGripThreshold: 0.75
+  controllerGripReleaseThreshold: 0.55
   mrtkFingerToPalmClosedDistance: 0.095
+  mrtkFingerToPalmOpenDistance: 0.12
   mrtkClosedFingerCount: 3
   holdSeconds: 3
   stopPublishSeconds: 0.3
+  handLostGraceSec: 0.4
+  enableDiagnosticLog: 1
+  diagnosticLogIntervalSec: 0.5
   maxDeltaX: 0.2
   maxDeltaZ: 0.2
   maxRollDeltaRad: 0.8
@@ -25989,7 +26005,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f1153af85907f1a418f023ff63f5cbd7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  handMenuSpawnBottleObject: {fileID: 384755664}
+  handMenuSpawnBottleObject: {fileID: 5942948548269898092, guid: fd67050d531d8d8439da8d516561524d, type: 3}
   bootstrap: {fileID: 925656176}
   sharedBottleSpawner: {fileID: 349340209}
   localBottleSpawner: {fileID: 976219406}
@@ -33108,7 +33124,7 @@ MonoBehaviour:
   m_spriteAsset: {fileID: 0}
   m_tintAllSprites: 0
   m_StyleSheet: {fileID: 0}
-  m_TextStyleHashCode: 0
+  m_TextStyleHashCode: -1183493901
   m_overrideHtmlColors: 0
   m_faceColor:
     serializedVersion: 2
@@ -36893,7 +36909,7 @@ Transform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
-  m_Father: {fileID: 0}
+  m_Father: {fileID: 273870641}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &925656176
 MonoBehaviour:
@@ -36914,11 +36930,12 @@ MonoBehaviour:
   defaultSessionSettings:
     userName: SHARE User
     isHostLikeUser: 1
+    participantId: 0
     deviceType: 0
     role: 0
     robotTarget: 0
     roomName: SHARE-MR-Room
-  useAutoHostOrClient: 1
+  useAutoHostOrClient: 0
   networkUserAvatarPrefab: {fileID: 2254691046431767620, guid: 58d625608d034e249be09fd0d74e8dae, type: 3}
   headSource: {fileID: 51949648}
   leftHandSource: {fileID: 0}
@@ -36971,6 +36988,8 @@ MonoBehaviour:
   objectKind: 0
   allowStateAuthorityGrab: 1
   isPhotonSharedNetworkBottle: 0
+  bottleOrigin: 0
+  detectedBottleTrackId: -1
   allowMouseEditorGrab: 1
   mouseDragDistanceMeters: 0.7
   mouseFollowSpeed: 18
@@ -36990,6 +37009,8 @@ MonoBehaviour:
     _value: 0
   _SpawnedAtRunnerTime: 0
   _NetworkDetectionVisualState: 0
+  _DetectedBottleTrackId: 0
+  _NetworkBottleOrigin: 0
 --- !u!136 &926059484
 CapsuleCollider:
   m_ObjectHideFlags: 0
@@ -38331,6 +38352,9 @@ GameObject:
   - component: {fileID: 976219404}
   - component: {fileID: 976219405}
   - component: {fileID: 976219406}
+  - component: {fileID: 976219407}
+  - component: {fileID: 976219408}
+  - component: {fileID: 976219409}
   m_Layer: 0
   m_Name: DebugManager
   m_TagString: Untagged
@@ -38529,6 +38553,7 @@ MonoBehaviour:
   bottlePrefab: {fileID: 5942948548269898092, guid: fd67050d531d8d8439da8d516561524d, type: 3}
   parent: {fileID: 1039693688}
   positionScale: 1
+  bottleDisplayOffsetWorld: {x: 0, y: -0.1, z: 0.15}
   smoothing: 0.2
   manualSpawnScale: 0.801
   createdBottleScale: 0.801
@@ -38539,14 +38564,28 @@ MonoBehaviour:
   spawnDetectionCount: 2
   palmPoseTransform: {fileID: 0}
   hmdTransform: {fileID: 0}
+  amirMrAnchor: {fileID: 0}
+  latestPoseMaxAgeSec: 0.75
   palmMaxDistance: 0.35
   palmWeight: 0.7
   gazeWeight: 0.3
   selectionScoreThreshold: 0.45
   addToButtonCollectionMenu: 0
   createRuntimeButton: 0
-  showDebugStatusText: 1
+  showDebugStatusText: 0
   forceSpawnInFrontOfHmd: 0
+  usePhotonSharedBottleWhenConnected: 1
+  photonBottleSpawner: {fileID: 0}
+  disableLocalBottleWhenPhotonConnected: 1
+  trackAssociationDistanceM: 0.1
+  trackLostTimeoutSec: 2
+  rosPosePositionThresholdM: 0.02
+  rosPoseUpdateRateHz: 10
+  destroyUnclaimedTrackAfterTimeout: 0
+  scanOnceOnStartup: 1
+  startupScanTimeoutSec: 2
+  manualScanWindowSec: 1
+  removeUnseenUngrabbedRosBottlesOnScan: 0
   forceSpawnDistance: 0.5
   debugStatusDistance: 0.55
   debugStatusVerticalOffset: -0.08
@@ -38556,6 +38595,86 @@ MonoBehaviour:
   PoseArrayTopic: /detected_bottle_poses
   buttonCollectionRoot: {fileID: 0}
   spawnButtonCanvas: {fileID: 0}
+--- !u!114 &976219407
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 976219391}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d7e4f50a36bb45fc9d3c61f7795f2cab, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  hmdTransform: {fileID: 0}
+  leftHandTransform: {fileID: 0}
+  leftHandDirectionAxis: 0
+  hmdMaxAngleDeg: 25
+  leftHandMaxAngleDeg: 15
+  maxTargetDistance: 3
+  hmdWeight: 0.35
+  handWeight: 0.55
+  distanceWeight: 0.1
+  selectionDwellTimeSec: 0.3
+  lostGraceTimeSec: 0.25
+  switchDwellTimeSec: 0.2
+  leftHandLostGraceTimeSec: 0.15
+  claimRequestTimeoutSec: 2
+  selectionUpdateRateHz: 30
+  candidateRefreshIntervalSec: 0.25
+  includeRosDetectedBottles: 1
+  includeManualBottles: 0
+  keepSelectedTargetWhenHandLost: 1
+  excludeBottleGrabbedByOtherUser: 1
+  enableDebugLogs: 1
+  drawDebugRays: 0
+  drawCandidateLines: 0
+--- !u!114 &976219408
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 976219391}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 794b8b13da784ca990fa37fd96ff891e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  operationRange: {fileID: 2100000004}
+  containmentMode: 0
+  includeRosDetectedBottles: 1
+  includeManualBottles: 0
+  outsideMargin: 0.02
+  insideRecoveryMargin: 0.02
+  stateChangeDwellSec: 0.15
+  rangeEvaluationRateHz: 15
+  bottleRefreshIntervalSec: 0.25
+  enableDebugLogs: 1
+--- !u!114 &976219409
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 976219391}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1b81b64a171a474788a53b4a0844d0c4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  summaryIntervalSec: 30
+  duplicateFailureSuppressSec: 5
+  enableOkSummary: 1
+  enableStatusSummary: 1
+  enableVerboseLogs: 0
+  poseStampedTimeoutSec: 2
+  poseArrayTimeoutSec: 2
+  monitorRosTcp: 1
+  monitorPoseStamped: 1
+  monitorPoseArray: 1
+  monitorPhoton: 1
 --- !u!1 &977927053
 GameObject:
   m_ObjectHideFlags: 0
@@ -38921,7 +39040,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &995805889
 Transform:
   m_ObjectHideFlags: 0
@@ -39568,7 +39687,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &1022160408
 Transform:
   m_ObjectHideFlags: 0
@@ -39705,6 +39824,8 @@ MonoBehaviour:
   objectKind: 2
   allowStateAuthorityGrab: 1
   isPhotonSharedNetworkBottle: 0
+  bottleOrigin: 0
+  detectedBottleTrackId: -1
   allowMouseEditorGrab: 0
   mouseDragDistanceMeters: 0.7
   mouseFollowSpeed: 18
@@ -39724,6 +39845,8 @@ MonoBehaviour:
     _value: 0
   _SpawnedAtRunnerTime: 0
   _NetworkDetectionVisualState: 0
+  _DetectedBottleTrackId: 0
+  _NetworkBottleOrigin: 0
 --- !u!65 &1024490471
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -40253,6 +40376,7 @@ Transform:
   - {fileID: 646328162}
   - {fileID: 224412280}
   - {fileID: 1248380704}
+  - {fileID: 2100000002}
   m_Father: {fileID: 735956891}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &1039693690
@@ -40821,7 +40945,7 @@ Transform:
   m_GameObject: {fileID: 1046476733}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalPosition: {x: 0, y: 0.0056, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -43116,6 +43240,8 @@ MonoBehaviour:
   objectKind: 1
   allowStateAuthorityGrab: 1
   isPhotonSharedNetworkBottle: 0
+  bottleOrigin: 0
+  detectedBottleTrackId: -1
   allowMouseEditorGrab: 1
   mouseDragDistanceMeters: 0.7
   mouseFollowSpeed: 18
@@ -43135,6 +43261,8 @@ MonoBehaviour:
     _value: 0
   _SpawnedAtRunnerTime: 0
   _NetworkDetectionVisualState: 0
+  _DetectedBottleTrackId: 0
+  _NetworkBottleOrigin: 0
 --- !u!65 &1113942951
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -47317,7 +47445,7 @@ MonoBehaviour:
   m_spriteAsset: {fileID: 0}
   m_tintAllSprites: 0
   m_StyleSheet: {fileID: 0}
-  m_TextStyleHashCode: 0
+  m_TextStyleHashCode: -1183493901
   m_overrideHtmlColors: 0
   m_faceColor:
     serializedVersion: 2
@@ -51283,34 +51411,6 @@ Transform:
   - {fileID: 645197827}
   m_Father: {fileID: 211423547}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!21 &1344036141
-Material:
-  serializedVersion: 8
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_Name: Unlit/VertexColor
-  m_Shader: {fileID: 4800000, guid: d2fafd88cf56225449a274844451c981, type: 3}
-  m_Parent: {fileID: 0}
-  m_ModifiedSerializedProperties: 0
-  m_ValidKeywords: []
-  m_InvalidKeywords: []
-  m_LightmapFlags: 4
-  m_EnableInstancingVariants: 0
-  m_DoubleSidedGI: 0
-  m_CustomRenderQueue: -1
-  stringTagMap: {}
-  disabledShaderPasses: []
-  m_LockedProperties: 
-  m_SavedProperties:
-    serializedVersion: 3
-    m_TexEnvs: []
-    m_Ints: []
-    m_Floats: []
-    m_Colors:
-    - _Color: {r: 1, g: 1, b: 1, a: 1}
-  m_BuildTextureStacks: []
 --- !u!1 &1345232590
 GameObject:
   m_ObjectHideFlags: 0
@@ -54863,6 +54963,11 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 3959285036668390294, guid: 390bf4c6c1d73984297af5b3eee33a38, type: 3}
   m_PrefabInstance: {fileID: 555887933}
   m_PrefabAsset: {fileID: 0}
+--- !u!4 &2100000010 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 900000000000000001, guid: 390bf4c6c1d73984297af5b3eee33a38, type: 3}
+  m_PrefabInstance: {fileID: 555887933}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &1460367780
 GameObject:
   m_ObjectHideFlags: 0
@@ -56482,7 +56587,9 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: "Calibration\nStart"
+  m_text: 'Calibration
+
+    Start'
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 533bdd8d5c92b52448ee2ecf7bd828a4, type: 2}
   m_sharedMaterial: {fileID: -1005824763306460071, guid: 533bdd8d5c92b52448ee2ecf7bd828a4, type: 2}
@@ -62221,7 +62328,7 @@ MonoBehaviour:
   m_FallbackScreenDPI: 96
   m_DefaultSpriteDPI: 96
   m_DynamicPixelsPerUnit: 12
-  m_PresetInfoIsWorld: 0
+  m_PresetInfoIsWorld: 1
 --- !u!223 &1733228007
 Canvas:
   m_ObjectHideFlags: 0
@@ -62240,7 +62347,7 @@ Canvas:
   m_OverridePixelPerfect: 0
   m_SortingBucketNormalizedSize: 0
   m_VertexColorAlwaysGammaSpace: 0
-  m_AdditionalShaderChannelsFlag: 0
+  m_AdditionalShaderChannelsFlag: 25
   m_UpdateRectTransformForStandalone: 0
   m_SortingLayerID: 0
   m_SortingOrder: 90
@@ -62322,7 +62429,9 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: "Calibration\nStart"
+  m_text: 'Calibration
+
+    Start'
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 533bdd8d5c92b52448ee2ecf7bd828a4, type: 2}
   m_sharedMaterial: {fileID: -1005824763306460071, guid: 533bdd8d5c92b52448ee2ecf7bd828a4, type: 2}
@@ -62938,7 +63047,9 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: "Calibration\nStart"
+  m_text: 'Calibration
+
+    Start'
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 533bdd8d5c92b52448ee2ecf7bd828a4, type: 2}
   m_sharedMaterial: {fileID: -1005824763306460071, guid: 533bdd8d5c92b52448ee2ecf7bd828a4, type: 2}
@@ -63226,7 +63337,9 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: "Calibration\nStart"
+  m_text: 'Calibration
+
+    Start'
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 533bdd8d5c92b52448ee2ecf7bd828a4, type: 2}
   m_sharedMaterial: {fileID: -1005824763306460071, guid: 533bdd8d5c92b52448ee2ecf7bd828a4, type: 2}
@@ -64055,7 +64168,7 @@ MonoBehaviour:
   m_spriteAsset: {fileID: 0}
   m_tintAllSprites: 0
   m_StyleSheet: {fileID: 0}
-  m_TextStyleHashCode: 0
+  m_TextStyleHashCode: -1183493901
   m_overrideHtmlColors: 0
   m_faceColor:
     serializedVersion: 2
@@ -72308,7 +72421,9 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: "Calibration\nStart"
+  m_text: 'Calibration
+
+    Start'
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 533bdd8d5c92b52448ee2ecf7bd828a4, type: 2}
   m_sharedMaterial: {fileID: -1005824763306460071, guid: 533bdd8d5c92b52448ee2ecf7bd828a4, type: 2}
@@ -72938,7 +73053,9 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: "Calibration\nStart"
+  m_text: 'Calibration
+
+    Start'
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 533bdd8d5c92b52448ee2ecf7bd828a4, type: 2}
   m_sharedMaterial: {fileID: -1005824763306460071, guid: 533bdd8d5c92b52448ee2ecf7bd828a4, type: 2}
@@ -73457,6 +73574,34 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2074288607}
   m_Mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!21 &2075928478
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: Unlit/VertexColor
+  m_Shader: {fileID: 4800000, guid: d2fafd88cf56225449a274844451c981, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_LockedProperties: 
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs: []
+    m_Ints: []
+    m_Floats: []
+    m_Colors:
+    - _Color: {r: 1, g: 1, b: 1, a: 1}
+  m_BuildTextureStacks: []
 --- !u!1001 &2076951636
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -73987,6 +74132,76 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2095064459}
   m_Mesh: {fileID: 8597400676033422076, guid: 817117ab22c8d33418218d97ff6c9774, type: 3}
+--- !u!1 &2100000001
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2100000002}
+  - component: {fileID: 2100000003}
+  - component: {fileID: 2100000004}
+  m_Layer: 0
+  m_Name: OperationRangeCollider
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &2100000002
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2100000001}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1039693688}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!65 &2100000003
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2100000001}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 1
+  m_ProvidesContacts: 0
+  m_Enabled: 0
+  serializedVersion: 3
+  m_Size: {x: 2, y: 1.5, z: 2}
+  m_Center: {x: 0, y: -0.6, z: 0.5}
+--- !u!114 &2100000004
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2100000001}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 633a3d0d25b446dfb09f01ce83ee00ed, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  operationRangeSource: 0
+  rangeReferenceRoot: {fileID: 1455497434}
+  localReachabilityVolumeRoot: {fileID: 2100000010}
+  insideEpsilon: 0.001
 --- !u!1 &2105867408
 GameObject:
   m_ObjectHideFlags: 0
@@ -117623,4 +117838,3 @@ SceneRoots:
   - {fileID: 581394850}
   - {fileID: 1521942135}
   - {fileID: 273870641}
-  - {fileID: 925656175}

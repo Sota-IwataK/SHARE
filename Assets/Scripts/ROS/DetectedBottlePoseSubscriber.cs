@@ -39,7 +39,7 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
     private const string SpawnBottleButtonName = "Scan Bottles";
     private const string RuntimeObjectName = "DetectedBottlePoseRuntime";
     private const string ManualBottleName = "Manual Bottle";
-    private const string OpticalFrameCoordinateMode = "camera_color_optical_frame optical: Unity=(ros.x, -ros.y, ros.z)";
+    private const string OpticalFrameCoordinateMode = "AMIR: Unity=(-amir.y, amir.z, amir.x)";
     private const float ManualMenuDistance = 0.8f;
     private const float ManualMenuDown = 0.12f;
     private const float ManualMenuScale = 0.001f;
@@ -47,6 +47,8 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
     public GameObject bottlePrefab;
     public Transform parent;
     public float positionScale = 1.0f;
+    [SerializeField]
+    private Vector3 bottleDisplayOffsetWorld = new Vector3(0f, -0.10f, 0.15f);
     [Range(0f, 1f)] public float smoothing = 0.2f;
     [HideInInspector]
     public float manualSpawnScale = 0.15f;
@@ -57,7 +59,12 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
     public int maxDisplayedBottles = 5;
     public int spawnDetectionCount = 2;
     public Transform palmPoseTransform;
+    [Tooltip("Deprecated: RealSense Poseからのボトル生成には使用しません。")]
     public Transform hmdTransform;
+    [Tooltip("Deprecated: RealSense Poseからのボトル生成には使用しません。")]
+    public Transform amirMrAnchor;
+    [SerializeField, Min(0.01f)]
+    private float latestPoseMaxAgeSec = 0.75f;
     public float palmMaxDistance = 0.35f;
     public float palmWeight = 0.7f;
     public float gazeWeight = 0.3f;
@@ -65,6 +72,7 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
     public bool addToButtonCollectionMenu = false;
     public bool createRuntimeButton = false;
     public bool showDebugStatusText = true;
+    [Tooltip("Deprecated: RealSense Poseからのボトル生成位置には影響しません。")]
     public bool forceSpawnInFrontOfHmd = false;
     public bool usePhotonSharedBottleWhenConnected = true;
     public PhotonSharedBottleSpawner photonBottleSpawner;
@@ -161,6 +169,15 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
     private float latestBottleSnapshotTime = -1f;
     private string latestBottleSnapshotFrameId = "none";
     private bool initialPhotonCommitCompleted;
+    private bool convertedWithoutDisplayOffsetLogged;
+    private Vector3 latestRosPosition;
+    private bool hasLatestPose;
+    private double latestPoseReceivedTime = -1d;
+    private string latestRosPoseFrameId = "none";
+    private readonly List<Vector3> latestRosBottlePositions = new List<Vector3>();
+    private double latestPoseArrayReceivedTime = -1d;
+    private bool hasLatestPoseArray;
+    private string latestPoseArrayGenerationFrameId = "none";
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void EnsureRuntimeSubscriberExists()
@@ -237,15 +254,15 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
         EnsureDebugStatusText();
         EnsureButtonCollectionSpawnButton();
         EnsureManualSpawnButton();
-        if (scanOnceOnStartup)
-        {
-            StartBottleScan("Initial", startupScanTimeoutSec, true);
-        }
     }
 
     protected override void OnEnable()
     {
         base.OnEnable();
+        CommunicationHealthMonitor.SetChannelEnabled(
+            CommunicationChannel.PoseArray, usePoseArray);
+        CommunicationHealthMonitor.SetChannelEnabled(
+            CommunicationChannel.PoseStamped, !usePoseArray);
         EnsurePoseArraySubscriber();
         EnsureDebugStatusText();
     }
@@ -255,32 +272,12 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
         UpdateRuntimeSpawnCanvasPose();
         UpdateDebugStatusText();
         RefreshTrackGrabStates();
-        TryCommitInitialSnapshotAfterPhotonJoin();
 
         if (ShouldSuppressLocalBottleDisplay())
         {
             HideLocalDetectedBottleInstances();
             UpdateCandidateBottleLabel();
             return;
-        }
-
-        for (int i = 0; i < bottleHasTargetPositions.Count; i++)
-        {
-            if (!bottleHasTargetPositions[i])
-            {
-                continue;
-            }
-
-            GameObject instance = EnsureBottleInstance(i, false);
-            if (instance == null)
-            {
-                continue;
-            }
-
-            instance.transform.position = Vector3.Lerp(
-                instance.transform.position,
-                bottleTargetPositions[i],
-                smoothing);
         }
 
         UpdateCandidateBottleLabel();
@@ -687,12 +684,125 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
 
     public void SpawnBottleManual()
     {
-        RequestBottleScan();
+        GenerateOrRefreshBottle();
     }
 
     public void SpawnBottleManual(int index)
     {
-        RequestBottleScan();
+        GenerateOrRefreshBottle();
+    }
+
+    public void GenerateOrRefreshBottle()
+    {
+        double now = Time.realtimeSinceStartupAsDouble;
+        double poseAge = hasLatestPose ? now - latestPoseReceivedTime : -1d;
+        Debug.Log("[DetectedBottlePoseSubscriber] GenerateOrRefreshBottle called"
+            + " hasLatestPose=" + hasLatestPose
+            + " latestRosPosition=" + latestRosPosition.ToString("F3")
+            + " poseAge=" + (poseAge >= 0d ? poseAge.ToString("F3") + "s" : "n/a"));
+
+        if (bottlePrefab == null)
+        {
+            Debug.LogWarning("[DetectedBottlePoseSubscriber] Bottle was not generated: bottlePrefab is not assigned.");
+            return;
+        }
+
+        if (!TryGetLatestBottleWorldPose(out UnityEngine.Pose worldPose, out string failureReason))
+        {
+            Debug.LogWarning("[DetectedBottlePoseSubscriber] Bottle was not generated: " + failureReason);
+            return;
+        }
+
+        Vector3 worldPosition = worldPose.position;
+
+        if (manualBottleInstance == null)
+        {
+            manualBottleInstance = Instantiate(
+                bottlePrefab,
+                worldPosition,
+                worldPose.rotation,
+                null);
+            manualBottleInstance.name = ManualBottleName;
+            manualBottleInstance.transform.localScale = Vector3.one * createdBottleScale;
+            ApplyManualBottleInteractionSetup(manualBottleInstance);
+        }
+        else
+        {
+            manualBottleInstance.transform.position = worldPosition;
+            Rigidbody[] rigidbodies = manualBottleInstance.GetComponentsInChildren<Rigidbody>(true);
+            for (int i = 0; i < rigidbodies.Length; i++)
+            {
+                rigidbodies[i].velocity = Vector3.zero;
+                rigidbodies[i].angularVelocity = Vector3.zero;
+            }
+        }
+
+        manualBottleInstance.SetActive(true);
+        Debug.Log("[DetectedBottlePoseSubscriber] Bottle generated/refreshed from latest PoseStamped at "
+            + worldPosition.ToString("F3"));
+    }
+
+    public bool TryGetLatestBottleWorldPose(out UnityEngine.Pose worldPose)
+    {
+        return TryGetLatestBottleWorldPose(out worldPose, out _);
+    }
+
+    public bool TryGetLatestBottleWorldPose(
+        out UnityEngine.Pose worldPose,
+        out string failureReason)
+    {
+        worldPose = new UnityEngine.Pose(Vector3.zero, Quaternion.identity);
+        failureReason = string.Empty;
+        if (!hasLatestPose)
+        {
+            failureReason = "PoseNotReceived";
+            return false;
+        }
+
+        if (!IsFinite(latestRosPosition))
+        {
+            failureReason = "NonFiniteRosPosition";
+            return false;
+        }
+
+        double poseAge = Time.realtimeSinceStartupAsDouble - latestPoseReceivedTime;
+        if (!IsFinite(poseAge) || poseAge < 0d)
+        {
+            failureReason = "InvalidPoseAge";
+            return false;
+        }
+
+        if (latestPoseMaxAgeSec > 0f && poseAge > latestPoseMaxAgeSec)
+        {
+            failureReason = "PoseStale age=" + poseAge.ToString("F3")
+                + "s maxAge=" + latestPoseMaxAgeSec.ToString("F3") + "s";
+            return false;
+        }
+
+        Vector3 worldPosition = ConvertRosToBottleWorldPosition(
+            latestRosPosition,
+            latestRosPoseFrameId,
+            out Vector3 convertedPosition);
+        if (!IsFinite(worldPosition))
+        {
+            failureReason = "NonFinitePosition";
+            return false;
+        }
+
+        worldPose = new UnityEngine.Pose(worldPosition, Quaternion.identity);
+        failureReason = "Accepted";
+        if (!convertedWithoutDisplayOffsetLogged)
+        {
+            convertedWithoutDisplayOffsetLogged = true;
+            Debug.Log("[DetectedBottlePoseSubscriber] Bottle display offset applied"
+                + " frame=" + latestRosPoseFrameId
+                + " rosPosition=" + latestRosPosition.ToString("F3")
+                + " convertedPosition=" + convertedPosition.ToString("F3")
+                + " displayOffset=" + bottleDisplayOffsetWorld.ToString("F3")
+                + " finalPosition=" + worldPosition.ToString("F3")
+                + " positionScale=" + positionScale.ToString("F3"));
+        }
+        return true;
     }
 
     public void RequestBottleScan()
@@ -771,22 +881,6 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
             + " active=" + CountActiveCreatedBottles());
 
         Vector3 spawnPosition = latestDetectedUnityPositions[index];
-        if (forceSpawnInFrontOfHmd)
-        {
-            if (TryGetHmdFrontPosition(forceSpawnDistance, 0f, out Vector3 forcedSpawnPosition))
-            {
-                spawnPosition = forcedSpawnPosition;
-                Debug.Log("[DetectedBottlePoseSubscriber] forceSpawnInFrontOfHmd active. "
-                    + "Spawn position overridden to HMD front="
-                    + spawnPosition.ToString("F3")
-                    + " distance=" + forceSpawnDistance.ToString("F3"));
-            }
-            else
-            {
-                Debug.LogWarning("[DetectedBottlePoseSubscriber] forceSpawnInFrontOfHmd active, "
-                    + "but HMD transform was not found. Using detected position.");
-            }
-        }
 
         GameObject instance = EnsureCreatedBottleInstance(index, spawnPosition);
         if (instance == null)
@@ -817,9 +911,7 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
             return;
         }
 
-        float distance = forceSpawnInFrontOfHmd ? forceSpawnDistance : 0.6f;
-        float verticalOffset = forceSpawnInFrontOfHmd ? 0f : -0.1f;
-        if (!TryGetHmdFrontPosition(distance, verticalOffset, out Vector3 spawnPosition))
+        if (!TryGetHmdFrontPosition(0.6f, -0.1f, out Vector3 spawnPosition))
         {
             Debug.LogError("[DetectedBottlePoseSubscriber] Camera.main was not found; manual spawn failed.");
             return;
@@ -1371,40 +1463,21 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
 
     protected override void ReceiveMessage(PoseStampedMsg message)
     {
-        if (usePoseArray)
+        if (message == null || message.pose == null || message.pose.position == null)
         {
-            Debug.Log("Single pose ignored because usePoseArray=true");
+            Debug.LogWarning("[DetectedBottlePoseSubscriber] Invalid PoseStamped received; pose was not cached.");
             return;
         }
 
+        CommunicationHealthMonitor.ReportSuccess(CommunicationChannel.PoseStamped);
         Vector3 rosPosition = new Vector3(
             (float)message.pose.position.x,
             (float)message.pose.position.y,
             (float)message.pose.position.z);
-        string frameId = GetFrameId(message.header != null ? message.header.frame_id : null);
-
-        targetUnityPosition = ConvertRosToUnity(rosPosition) * positionScale;
-        Quaternion unityRotation = ConvertRosToUnityRotation(message.pose.orientation);
-        CacheBottleSnapshot(frameId, targetUnityPosition, unityRotation);
-        MarkLatestDetection(targetUnityPosition, unityRotation, frameId, 1f, false, 0);
-        if (IsBottleScanInProgress)
-        {
-            CopySnapshot(latestBottleSnapshot, activeScanSnapshot);
-        }
-
-        Debug.Log("[DetectedBottlePoseSubscriber] Bottle pose update received");
-        Debug.Log("[DetectedBottlePoseSubscriber] Bottle[0] updated");
-        Debug.Log("[DetectedBottlePoseSubscriber] Bottle[0] position="
-            + targetUnityPosition.ToString("F3"));
-        Debug.Log("[DetectedBottlePoseSubscriber] /detected_bottle_pose"
-            + " frame_id=" + frameId
-            + " coordinateMode=" + OpticalFrameCoordinateMode
-            + " ros=(" + rosPosition.x.ToString("F3") + ", "
-            + rosPosition.y.ToString("F3") + ", "
-            + rosPosition.z.ToString("F3") + ")"
-            + " unity=(" + targetUnityPosition.x.ToString("F3") + ", "
-            + targetUnityPosition.y.ToString("F3") + ", "
-            + targetUnityPosition.z.ToString("F3") + ")");
+        CachePoseForManualGeneration(
+            rosPosition,
+            GetFrameId(message.header != null ? message.header.frame_id : null),
+            "PoseStamped");
     }
 
     private void ReceivePoseArrayMessage(PoseArrayMsg message)
@@ -1418,10 +1491,16 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
         int receivedCount = message.poses.Length;
         string frameId = GetFrameId(message.header != null ? message.header.frame_id : null);
         latestPoseArrayFrameId = frameId;
-        Debug.Log("[DetectedBottlePoseSubscriber] PoseArray received count=" + receivedCount);
+        latestPoseArrayGenerationFrameId = frameId;
+        CommunicationHealthMonitor.ReportSuccess(CommunicationChannel.PoseArray);
+        CommunicationHealthMonitor.Verbose(CommunicationChannel.PoseArray,
+            "PoseArray received count=" + receivedCount);
 
         latestDetectedUnityPositions.Clear();
         latestBottleSnapshot.Clear();
+        latestRosBottlePositions.Clear();
+        latestPoseArrayReceivedTime = Time.realtimeSinceStartupAsDouble;
+        hasLatestPoseArray = true;
         bool recordedPrimaryDetection = false;
         for (int i = 0; i < receivedCount; i++)
         {
@@ -1435,7 +1514,20 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
                 (float)pose.position.x,
                 (float)pose.position.y,
                 (float)pose.position.z);
-            Vector3 unityPosition = ConvertRosToUnity(rosPosition) * positionScale;
+            if (!IsFinite(rosPosition))
+            {
+                Debug.LogWarning("[DetectedBottlePoseSubscriber] PoseArray[" + i
+                    + "] contains NaN or Infinity; skipped.");
+                continue;
+            }
+
+            latestRosBottlePositions.Add(rosPosition);
+            if (!recordedPrimaryDetection)
+            {
+                CachePoseForManualGeneration(rosPosition, frameId, "PoseArray[" + i + "]");
+            }
+
+            Vector3 unityPosition = ConvertRosToBottleWorldPosition(rosPosition, frameId);
             Quaternion unityRotation = ConvertRosToUnityRotation(pose.orientation);
             latestDetectedUnityPositions.Add(unityPosition);
             latestBottleSnapshot.Add(new UnityEngine.Pose(unityPosition, unityRotation));
@@ -1453,8 +1545,8 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
             }
         }
 
-        Debug.Log("[DetectedBottlePoseSubscriber] Latest PoseArray cached count="
-            + latestDetectedUnityPositions.Count);
+        CommunicationHealthMonitor.Verbose(CommunicationChannel.PoseArray,
+            "Latest PoseArray cached count=" + latestDetectedUnityPositions.Count);
         latestDetectedCount = latestDetectedUnityPositions.Count;
         hasLatestBottleSnapshot = latestBottleSnapshot.Count > 0;
         latestBottleSnapshotTime = Time.unscaledTime;
@@ -1469,16 +1561,145 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
             LatestDetectionConfidence = 0f;
         }
 
-        Debug.Log("[DetectedBottlePoseSubscriber] PoseArray frame_id=" + frameId
-            + " coordinateMode=" + OpticalFrameCoordinateMode);
+        CommunicationHealthMonitor.Verbose(CommunicationChannel.PoseArray,
+            "PoseArray frame_id=" + frameId + " coordinateMode=" + OpticalFrameCoordinateMode);
 
         for (int i = 0; i < latestDetectedUnityPositions.Count; i++)
         {
-            Debug.Log("[DetectedBottlePoseSubscriber] Cached detection[" + i + "] position="
+            CommunicationHealthMonitor.Verbose(CommunicationChannel.PoseArray,
+                "Cached detection[" + i + "] position="
                 + latestDetectedUnityPositions[i].ToString("F3"));
         }
 
         ForceDebugStatusRefresh();
+    }
+
+    public bool TryGetLatestBottleWorldPoses(
+        out IReadOnlyList<Vector3> worldPositions,
+        out string failureReason)
+    {
+        worldPositions = new Vector3[0];
+        failureReason = string.Empty;
+
+        bool useArrayCache = usePoseArray && hasLatestPoseArray;
+        if (!useArrayCache && !hasLatestPose)
+        {
+            failureReason = usePoseArray ? "PoseArrayNotReceived" : "PoseNotReceived";
+            return false;
+        }
+
+        double receivedTime = useArrayCache
+            ? latestPoseArrayReceivedTime
+            : latestPoseReceivedTime;
+        double poseAge = Time.realtimeSinceStartupAsDouble - receivedTime;
+        if (!IsFinite(poseAge) || poseAge < 0d)
+        {
+            failureReason = "InvalidPoseAge";
+            return false;
+        }
+
+        if (latestPoseMaxAgeSec > 0f && poseAge > latestPoseMaxAgeSec)
+        {
+            failureReason = "PoseStale age=" + poseAge.ToString("F3")
+                + "s maxAge=" + latestPoseMaxAgeSec.ToString("F3") + "s";
+            return false;
+        }
+
+        List<Vector3> convertedPositions = new List<Vector3>();
+        string sourceFrame = useArrayCache
+            ? latestPoseArrayGenerationFrameId
+            : latestRosPoseFrameId;
+        if (useArrayCache)
+        {
+            for (int i = 0; i < latestRosBottlePositions.Count; i++)
+            {
+                Vector3 rosPosition = latestRosBottlePositions[i];
+                Vector3 converted = ConvertRosToBottleWorldPosition(
+                    rosPosition,
+                    sourceFrame,
+                    out Vector3 convertedWithoutOffset);
+                if (IsFinite(converted))
+                {
+                    convertedPositions.Add(converted);
+                    CommunicationHealthMonitor.Verbose(CommunicationChannel.PoseArray,
+                        "Converted bottle pose"
+                        + " index=" + i
+                        + " sourceFrame=" + sourceFrame
+                        + " ros=" + rosPosition.ToString("F3")
+                        + " convertedPosition=" + convertedWithoutOffset.ToString("F3")
+                        + " finalPosition=" + converted.ToString("F3")
+                        + " positionScale=" + positionScale.ToString("F3")
+                        + " displayOffset=" + bottleDisplayOffsetWorld.ToString("F3"));
+                }
+            }
+        }
+        else
+        {
+            Vector3 converted = ConvertRosToBottleWorldPosition(
+                latestRosPosition,
+                sourceFrame,
+                out Vector3 convertedWithoutOffset);
+            if (IsFinite(converted))
+            {
+                convertedPositions.Add(converted);
+                CommunicationHealthMonitor.Verbose(CommunicationChannel.PoseStamped,
+                    "Converted bottle pose"
+                    + " index=0"
+                    + " sourceFrame=" + sourceFrame
+                    + " ros=" + latestRosPosition.ToString("F3")
+                    + " convertedPosition=" + convertedWithoutOffset.ToString("F3")
+                    + " finalPosition=" + converted.ToString("F3")
+                    + " positionScale=" + positionScale.ToString("F3")
+                    + " displayOffset=" + bottleDisplayOffsetWorld.ToString("F3"));
+            }
+        }
+
+        convertedPositions.Sort((a, b) =>
+        {
+            int xCompare = a.x.CompareTo(b.x);
+            return xCompare != 0 ? xCompare : a.z.CompareTo(b.z);
+        });
+
+        worldPositions = convertedPositions;
+        failureReason = "Accepted";
+        CommunicationHealthMonitor.Verbose(
+            useArrayCache ? CommunicationChannel.PoseArray : CommunicationChannel.PoseStamped,
+            "Latest "
+            + (useArrayCache ? "PoseArray" : "PoseStamped fallback")
+            + " accepted validCount=" + convertedPositions.Count
+            + " poseAge=" + poseAge.ToString("F3")
+            + " sourceFrame=" + sourceFrame
+            + " displayOffset=" + bottleDisplayOffsetWorld.ToString("F3"));
+        return true;
+    }
+
+    private void CachePoseForManualGeneration(
+        Vector3 rosPosition,
+        string frameId,
+        string source)
+    {
+        if (!IsFinite(rosPosition))
+        {
+            Debug.LogWarning("[DetectedBottlePoseSubscriber] " + source
+                + " pose contains NaN or Infinity; manual-generation cache was not updated.");
+            return;
+        }
+
+        latestRosPosition = rosPosition;
+        hasLatestPose = true;
+        latestPoseReceivedTime = Time.realtimeSinceStartupAsDouble;
+        latestRosPoseFrameId = GetFrameId(frameId);
+        LatestDetectedBottleTimestamp = (float)latestPoseReceivedTime;
+        LatestDetectionSourceFrame = latestRosPoseFrameId;
+        CommunicationHealthMonitor.Verbose(
+            source.StartsWith("PoseArray", System.StringComparison.Ordinal)
+                ? CommunicationChannel.PoseArray
+                : CommunicationChannel.PoseStamped,
+            "Manual-generation pose cached"
+            + " source=" + source
+            + " sourceFrame=" + latestRosPoseFrameId
+            + " rosPosition=" + latestRosPosition.ToString("F3")
+            + " receivedTime=" + latestPoseReceivedTime.ToString("F3"));
     }
 
     private void UpdateBottleInstance(int index, PoseMsg pose, string frameId)
@@ -1493,7 +1714,7 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
             (float)pose.position.x,
             (float)pose.position.y,
             (float)pose.position.z);
-        Vector3 unityPosition = ConvertRosToUnity(rosPosition) * positionScale;
+        Vector3 unityPosition = ConvertRosToBottleWorldPosition(rosPosition, frameId);
         SetBottleTarget(index, unityPosition);
         GameObject instance = EnsureBottleInstance(index, true);
 
@@ -2709,12 +2930,56 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
         }
     }
 
-    private static Vector3 ConvertRosToUnity(Vector3 rosPosition)
+    private static Vector3 ConvertRosToUnity(Vector3 rosPosition, string sourceFrame)
+    {
+        string normalizedFrame = GetFrameId(sourceFrame).ToLowerInvariant();
+        bool isOpticalFrame = normalizedFrame.Contains("optical_frame");
+        bool isAmirBaseFrame = !isOpticalFrame
+            && (normalizedFrame.Contains("base_link")
+                || normalizedFrame.Contains("amir"));
+        return isAmirBaseFrame
+            ? ConvertAmirToUnity(rosPosition)
+            : new Vector3(rosPosition.x, -rosPosition.y, rosPosition.z);
+    }
+
+    private Vector3 ConvertRosToBottleWorldPosition(
+        Vector3 rosPosition,
+        string sourceFrame)
+    {
+        return ConvertRosToBottleWorldPosition(rosPosition, sourceFrame, out _);
+    }
+
+    private Vector3 ConvertRosToBottleWorldPosition(
+        Vector3 rosPosition,
+        string sourceFrame,
+        out Vector3 convertedPosition)
+    {
+        Vector3 unityAxes = ConvertRosToUnity(rosPosition, sourceFrame);
+        convertedPosition = unityAxes * positionScale;
+        return convertedPosition + bottleDisplayOffsetWorld;
+    }
+
+    private static Vector3 ConvertAmirToUnity(Vector3 amirPosition)
     {
         return new Vector3(
-            rosPosition.x,
-            -rosPosition.y,
-            rosPosition.z);
+            -amirPosition.y,
+            amirPosition.z,
+            amirPosition.x);
+    }
+
+    private static bool IsFinite(float value)
+    {
+        return !float.IsNaN(value) && !float.IsInfinity(value);
+    }
+
+    private static bool IsFinite(double value)
+    {
+        return !double.IsNaN(value) && !double.IsInfinity(value);
+    }
+
+    private static bool IsFinite(Vector3 value)
+    {
+        return IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
     }
 
     private static Quaternion ConvertRosToUnityRotation(QuaternionMsg rosRotation)

@@ -427,6 +427,7 @@ public class NetworkedSharedSceneObject :
         IsGrabbed = true;
         LockOwner = requestPlayer;
         WriteNetworkPose("HostGrabStart", true);
+        CommunicationHealthMonitor.ReportSuccess(CommunicationChannel.GrabRpc);
         LogHostBottleState("PHOTON_BOTTLE_HOST_GRAB_GRANTED", requestPlayer);
         LogBottleState("PHOTON_BOTTLE_GRAB_GRANTED");
     }
@@ -455,6 +456,7 @@ public class NetworkedSharedSceneObject :
         bool written = WriteNetworkPose(reason, force);
         if (written)
         {
+            CommunicationHealthMonitor.ReportSuccess(CommunicationChannel.GrabRpc);
             LogHostBottleState("PHOTON_BOTTLE_HOST_POSE_ACCEPTED", requestPlayer);
         }
 
@@ -483,6 +485,7 @@ public class NetworkedSharedSceneObject :
             + " object=" + name);
         IsGrabbed = false;
         LockOwner = PlayerRef.None;
+        CommunicationHealthMonitor.ReportSuccess(CommunicationChannel.GrabRpc);
         LogHostBottleState("PHOTON_BOTTLE_HOST_RELEASED", requestPlayer);
         LogBottleState("PHOTON_BOTTLE_GRAB_RELEASED");
     }
@@ -523,7 +526,8 @@ public class NetworkedSharedSceneObject :
 
         if (ShouldLogPose(ref lastPoseSendLogTime, force))
         {
-            Debug.Log("[NetworkedSharedSceneObject] BOTTLE_POSE_SEND"
+            CommunicationHealthMonitor.Verbose(CommunicationChannel.BottleSync,
+                "[NetworkedSharedSceneObject] BOTTLE_POSE_SEND"
                 + " reason=" + reason
                 + " version=" + NetworkPoseVersion
                 + " player=" + (Runner != null ? Runner.LocalPlayer.ToString() : "none")
@@ -602,7 +606,8 @@ public class NetworkedSharedSceneObject :
             return;
         }
 
-        Debug.Log("[NetworkedSharedSceneObject] PHOTON_BOTTLE_LOCAL_GRAB_POSE_SEND"
+        CommunicationHealthMonitor.Verbose(CommunicationChannel.GrabRpc,
+            "[NetworkedSharedSceneObject] PHOTON_BOTTLE_LOCAL_GRAB_POSE_SEND"
             + " object=" + name
             + " player=" + (Runner != null ? Runner.LocalPlayer.ToString() : "none")
             + " isLocalLockOwner=" + IsLocalLockOwner()
@@ -650,7 +655,8 @@ public class NetworkedSharedSceneObject :
             lastReceivedPoseVersion = NetworkPoseVersion;
             if (ShouldLogPose(ref lastPoseReceiveLogTime, true))
             {
-                Debug.Log("[NetworkedSharedSceneObject] BOTTLE_POSE_RECEIVE"
+                CommunicationHealthMonitor.Verbose(CommunicationChannel.BottleSync,
+                    "[NetworkedSharedSceneObject] BOTTLE_POSE_RECEIVE"
                     + " reason=" + reason
                     + " version=" + NetworkPoseVersion
                     + " position=" + FormatVector(NetworkPosition)
@@ -664,7 +670,8 @@ public class NetworkedSharedSceneObject :
         if (NetworkPoseVersion != lastAppliedPoseVersion || ShouldLogPose(ref lastPoseApplyLogTime, false))
         {
             lastAppliedPoseVersion = NetworkPoseVersion;
-            Debug.Log("[NetworkedSharedSceneObject] BOTTLE_POSE_APPLY"
+            CommunicationHealthMonitor.Verbose(CommunicationChannel.BottleSync,
+                "[NetworkedSharedSceneObject] BOTTLE_POSE_APPLY"
                 + " remote=true"
                 + " reason=" + reason
                 + " version=" + NetworkPoseVersion
@@ -796,14 +803,15 @@ public class NetworkedSharedSceneObject :
         }
 
         string reasonText = string.IsNullOrWhiteSpace(reason) ? string.Empty : " reason=" + reason;
-        Debug.Log("[NetworkedSharedSceneObject] " + eventName
+        string message = "[NetworkedSharedSceneObject] " + eventName
             + reasonText
             + " object=" + name
             + " localPlayer=" + (Runner != null ? Runner.LocalPlayer.ToString() : "none")
             + " grabOwner=" + LockOwner
             + " stateAuthority=" + (Object != null ? Object.StateAuthority.ToString() : "none")
             + " inputAuthority=" + (Object != null ? Object.InputAuthority.ToString() : "none")
-            + " isLockedByOther=" + IsLockedByOther);
+            + " isLockedByOther=" + IsLockedByOther;
+        CommunicationHealthMonitor.Verbose(CommunicationChannel.BottleSync, message);
     }
 
     private void LogHostBottleState(string eventName, PlayerRef requestPlayer, string reason = "")
@@ -814,7 +822,7 @@ public class NetworkedSharedSceneObject :
         }
 
         string reasonText = string.IsNullOrWhiteSpace(reason) ? string.Empty : " reason=" + reason;
-        Debug.Log("[NetworkedSharedSceneObject] " + eventName
+        string message = "[NetworkedSharedSceneObject] " + eventName
             + reasonText
             + " object=" + name
             + " requestPlayer=" + requestPlayer
@@ -825,7 +833,15 @@ public class NetworkedSharedSceneObject :
             + " isGrabbed=" + IsGrabbed
             + " position=" + FormatVector(transform.position)
             + " rotation=" + FormatQuaternion(transform.rotation)
-            + " version=" + NetworkPoseVersion);
+            + " version=" + NetworkPoseVersion;
+        if (eventName.IndexOf("REJECTED", System.StringComparison.Ordinal) >= 0)
+        {
+            Debug.LogWarning(message, this);
+        }
+        else
+        {
+            CommunicationHealthMonitor.Verbose(CommunicationChannel.GrabRpc, message);
+        }
     }
 #else
     public bool IsLockedByOther => false;

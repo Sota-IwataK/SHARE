@@ -16,6 +16,7 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
     [Header("Shared Bottle Spawn")]
     public bool enableSharedBottleSpawn = true;
     public PhotonFusionSharedRoomBootstrap bootstrap;
+    public DetectedBottlePoseSubscriber detectedBottleSubscriber;
     public GameObject networkBottlePrefab;
     public Transform spawnAnchor;
     public float spawnDistance = 0.65f;
@@ -151,6 +152,162 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
         return TrySpawnOrUpdateDetectedBottle(0, unityPosition, unityRotation, false, false);
     }
 
+    public bool SpawnOrRefreshFromLatestDetection()
+    {
+        return SyncBottlesFromLatestDetections();
+    }
+
+    public bool SpawnNewBottleFromLatestDetection()
+    {
+        return SyncBottlesFromLatestDetections();
+    }
+
+    public bool SyncBottlesFromLatestDetections()
+    {
+        Debug.Log("[PhotonSharedBottleSpawner] Sync detected bottles requested");
+        ResolveReferences();
+        if (!CanSpawnSharedBottle(out string reason))
+        {
+            Debug.LogWarning("[PhotonSharedBottleSpawner] Latest detection pose rejected reason=" + reason);
+            return false;
+        }
+
+        Debug.Log("[PhotonSharedBottleSpawner] Role restriction disabled; shared participant may request bottle spawn");
+
+        if (detectedBottleSubscriber == null)
+        {
+            Debug.LogWarning("[PhotonSharedBottleSpawner] Latest detection pose rejected"
+                + " reason=MissingDetectedBottlePoseSubscriber");
+            return false;
+        }
+
+        if (!detectedBottleSubscriber.TryGetLatestBottleWorldPoses(
+            out IReadOnlyList<Vector3> detectedPositions,
+            out string poseFailureReason))
+        {
+            Debug.LogWarning("[PhotonSharedBottleSpawner] Latest detection pose rejected"
+                + " reason=" + poseFailureReason);
+            return false;
+        }
+
+        int validCount = detectedPositions.Count;
+        int targetCount = Mathf.Min(validCount, Mathf.Max(1, maxSharedBottleCount));
+        if (validCount > targetCount)
+        {
+            Debug.LogWarning("[PhotonSharedBottleSpawner] Detection count truncated"
+                + " valid=" + validCount
+                + " max=" + Mathf.Max(1, maxSharedBottleCount));
+        }
+
+        if (targetCount == 0)
+        {
+            Debug.Log("[PhotonSharedBottleSpawner] Latest PoseArray contains no valid bottles");
+        }
+
+#if FUSION_WEAVER && FUSION2
+        NetworkRunner runner = ResolveRunner();
+        if (runner == null || !runner.IsRunning)
+        {
+            Debug.LogWarning("[PhotonSharedBottleSpawner] Detection synchronization rejected reason=RunnerNotRunning");
+            return false;
+        }
+
+        List<NetworkedSharedSceneObject> rosDetectedBottles = CollectRosDetectedBottles();
+        int currentCount = rosDetectedBottles.Count;
+        int updateCount = Mathf.Min(currentCount, targetCount);
+        int spawnCount = Mathf.Max(0, targetCount - currentCount);
+        int despawnCount = Mathf.Max(0, currentCount - targetCount);
+        Debug.Log("[PhotonSharedBottleSpawner] Detection synchronization"
+            + " current=" + currentCount
+            + " target=" + targetCount
+            + " spawn=" + spawnCount
+            + " update=" + updateCount
+            + " despawn=" + despawnCount);
+
+        for (int i = 0; i < updateCount; i++)
+        {
+            NetworkedSharedSceneObject bottle = rosDetectedBottles[i];
+            if (bottle.IsGrabbedByAnyUser)
+            {
+                Debug.Log("[PhotonSharedBottleSpawner] Shared detected bottle update deferred"
+                    + " networkId=" + FormatNetworkId(bottle.Object)
+                    + " reason=Grabbed");
+                continue;
+            }
+
+            if (!bottle.HasLocalStateAuthority)
+            {
+                bottle.Object.RequestStateAuthority();
+                Debug.Log("[PhotonSharedBottleSpawner] Shared detected bottle update deferred"
+                    + " networkId=" + FormatNetworkId(bottle.Object)
+                    + " reason=StateAuthorityRequested");
+                continue;
+            }
+
+            if (bottle.TryApplyAuthorityPose(
+                detectedPositions[i],
+                Quaternion.identity,
+                "ManualDetectionSync",
+                true))
+            {
+                Debug.Log("[PhotonSharedBottleSpawner] Shared detected bottle updated"
+                    + " detectionIndex=" + i
+                    + " networkId=" + FormatNetworkId(bottle.Object));
+            }
+        }
+
+        for (int i = currentCount; i < targetCount; i++)
+        {
+            Debug.Log("[PhotonSharedBottleSpawner] Calling Runner.Spawn"
+                + " detectionIndex=" + i
+                + " position=" + FormatVector(detectedPositions[i])
+                + " rotation=" + FormatQuaternion(Quaternion.identity));
+            NetworkedSharedSceneObject spawned = RequestSpawnInternal(
+                detectedPositions[i],
+                Quaternion.identity,
+                "PoseArrayDetection:" + i,
+                -1,
+                SharedBottleOrigin.RosDetected);
+            if (spawned != null)
+            {
+                Debug.Log("[PhotonSharedBottleSpawner] Shared detected bottle spawned"
+                    + " detectionIndex=" + i
+                    + " networkId=" + FormatNetworkId(spawned.Object));
+            }
+        }
+
+        for (int i = currentCount - 1; i >= targetCount; i--)
+        {
+            NetworkedSharedSceneObject bottle = rosDetectedBottles[i];
+            string networkId = FormatNetworkId(bottle.Object);
+            if (bottle.IsGrabbedByAnyUser)
+            {
+                Debug.Log("[PhotonSharedBottleSpawner] Despawn deferred"
+                    + " networkId=" + networkId
+                    + " reason=Grabbed");
+                continue;
+            }
+
+            if (!bottle.HasLocalStateAuthority)
+            {
+                bottle.Object.RequestStateAuthority();
+                Debug.Log("[PhotonSharedBottleSpawner] Despawn deferred"
+                    + " networkId=" + networkId
+                    + " reason=StateAuthorityRequested");
+                continue;
+            }
+
+            DespawnNetworkBottle(runner, bottle.Object);
+            Debug.Log("[PhotonSharedBottleSpawner] Shared detected bottle despawned"
+                + " networkId=" + networkId);
+        }
+
+        return true;
+#else
+        return false;
+#endif
+    }
+
     public bool HasDetectedBottleTrack(int trackId)
     {
         return ResolveDetectedRosBottle(Mathf.Max(0, trackId)) != null;
@@ -163,7 +320,8 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
         int ignoredGrabbed,
         int ignoredManual)
     {
-        Debug.Log("[PhotonSharedBottleSpawner] Applied bottle snapshot:"
+        CommunicationHealthMonitor.Verbose(CommunicationChannel.BottleSync,
+            "[PhotonSharedBottleSpawner] Applied bottle snapshot:"
             + "\nsource=" + (string.IsNullOrWhiteSpace(source) ? "Unknown" : source)
             + "\nspawned=" + spawned
             + "\nupdated=" + updated
@@ -186,12 +344,6 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
         if (runner == null || !runner.IsRunning || bootstrap == null || !IsJoinedStatus(bootstrap.LastJoinStatus))
         {
             LogIgnoredRosBottlePose(resolvedTrackId, "PhotonDisconnected");
-            return false;
-        }
-
-        if (!HasRosPoseAuthority())
-        {
-            LogIgnoredRosBottlePose(resolvedTrackId, "NotAuthority");
             return false;
         }
 
@@ -226,7 +378,8 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
             rosBottleWasGrabbedByTrackId[resolvedTrackId] = hasBeenGrabbed || isCurrentlyGrabbed;
             MarkRosPoseApplied(resolvedTrackId, unityPosition, unityRotation);
             ClearIgnoredRosBottlePose(resolvedTrackId);
-            Debug.Log("[PhotonSharedBottleSpawner] Spawned ROS detected bottle:"
+            CommunicationHealthMonitor.Verbose(CommunicationChannel.BottleSync,
+                "[PhotonSharedBottleSpawner] Spawned ROS detected bottle:"
                 + "\ntrackId=" + resolvedTrackId
                 + "\nposition=" + FormatVector(unityPosition)
                 + "\nauthority=" + runner.LocalPlayer);
@@ -286,7 +439,8 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
         rosBottleWasGrabbedByTrackId[resolvedTrackId] = wasGrabbed;
         MarkRosPoseApplied(resolvedTrackId, unityPosition, unityRotation);
         ClearIgnoredRosBottlePose(resolvedTrackId);
-        Debug.Log("[PhotonSharedBottleSpawner] Updated ROS detected bottle:"
+        CommunicationHealthMonitor.Verbose(CommunicationChannel.BottleSync,
+            "[PhotonSharedBottleSpawner] Updated ROS detected bottle:"
             + "\ntrackId=" + resolvedTrackId
             + "\nreason=RosPose");
         return true;
@@ -355,6 +509,12 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
             return false;
         }
 
+        if (!bootstrap.SharedModeSelected)
+        {
+            reason = "SharedModeNotSelected";
+            return false;
+        }
+
         if (IsDisconnectOrLeaveStatus(bootstrap.LastJoinStatus))
         {
             reason = bootstrap.LastJoinStatus;
@@ -375,6 +535,25 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
             return false;
         }
 
+        if (!runner.IsInSession)
+        {
+            reason = "RunnerNotInSession";
+            return false;
+        }
+
+        if (runner.GameMode != GameMode.Shared || runner.Topology != Topologies.Shared)
+        {
+            reason = "RunnerIsNotShared gameMode=" + runner.GameMode
+                + " topology=" + runner.Topology;
+            return false;
+        }
+
+        if (runner.LocalPlayer == PlayerRef.None)
+        {
+            reason = "LocalPlayerNotReady";
+            return false;
+        }
+
         if (!IsJoinedStatus(bootstrap.LastJoinStatus))
         {
             reason = "PhotonNotJoined";
@@ -390,6 +569,12 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
         if (networkBottlePrefab.GetComponent<NetworkObject>() == null)
         {
             reason = "NetworkBottlePrefabMissingNetworkObject";
+            return false;
+        }
+
+        if (detectedBottleSubscriber == null)
+        {
+            reason = "MissingDetectedBottlePoseSubscriber";
             return false;
         }
 
@@ -476,6 +661,13 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
             return null;
         }
 
+        if (!IsValidSharedRunner(runner))
+        {
+            LogRunnerInventory(runner);
+            FailSpawn("RunnerIsNotActiveShared");
+            return null;
+        }
+
         if (networkBottlePrefab == null)
         {
             FailSpawn("MissingNetworkBottlePrefab");
@@ -501,6 +693,10 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
 
         try
         {
+            LogRunnerInventory(runner);
+            Debug.Log("[PhotonSharedBottleSpawner] Calling Runner.Spawn"
+                + " position=" + FormatVector(position)
+                + " rotation=" + FormatQuaternion(rotation));
             NetworkObject spawned = runner.Spawn(
                 networkBottlePrefab,
                 position,
@@ -523,10 +719,17 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
             }
 
             RegisterObservedBottle(spawned, true);
+            Debug.Log("[PhotonSharedBottleSpawner] Shared bottle spawned"
+                + " networkId=" + FormatNetworkId(spawned)
+                + " instanceId=" + spawned.GetInstanceID());
             return spawned.GetComponent<NetworkedSharedSceneObject>();
         }
         catch (Exception ex)
         {
+            Debug.LogError("[PhotonSharedBottleSpawner] Runner.Spawn failed"
+                + " exception=" + ex.GetType().Name
+                + ": " + ex.Message
+                + "\n" + ex.StackTrace);
             FailSpawn(ex.GetType().Name + ": " + ex.Message);
             return null;
         }
@@ -543,6 +746,35 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
     {
         return FindNewestSharedBottleWithNetworkObject();
     }
+
+#if FUSION_WEAVER && FUSION2
+    private List<NetworkedSharedSceneObject> CollectRosDetectedBottles()
+    {
+        NetworkedSharedSceneObject[] sharedObjects =
+            FindObjectsOfType<NetworkedSharedSceneObject>(true);
+        List<NetworkedSharedSceneObject> result = new List<NetworkedSharedSceneObject>();
+        for (int i = 0; i < sharedObjects.Length; i++)
+        {
+            NetworkedSharedSceneObject sharedObject = sharedObjects[i];
+            if (sharedObject == null
+                || !sharedObject.isActiveAndEnabled
+                || !sharedObject.IsPhotonSharedNetworkBottle
+                || sharedObject.SharedOrigin != SharedBottleOrigin.RosDetected
+                || sharedObject.Object == null
+                || !sharedObject.Object.Id.IsValid)
+            {
+                continue;
+            }
+
+            result.Add(sharedObject);
+        }
+
+        result.Sort((a, b) => string.CompareOrdinal(
+            FormatNetworkId(a.Object),
+            FormatNetworkId(b.Object)));
+        return result;
+    }
+#endif
 
     private NetworkedSharedSceneObject ResolveDetectedRosBottle(int trackId)
     {
@@ -580,6 +812,7 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
         lastRosPoseAppliedPositionByTrackId[trackId] = position;
         lastRosPoseAppliedRotationByTrackId[trackId] = rotation;
         lastRosPoseAppliedTimeByTrackId[trackId] = Time.realtimeSinceStartup;
+        CommunicationHealthMonitor.ReportSuccess(CommunicationChannel.BottleSync);
     }
 
     private void LogIgnoredRosBottlePose(int trackId, string reason)
@@ -612,18 +845,6 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
         lastIgnoredRosPoseReasonByTrackId.Remove(trackId);
     }
 
-    private bool HasRosPoseAuthority()
-    {
-        if (NetworkUserAvatar.Local != null)
-        {
-            return NetworkUserAvatar.Local.IsHostLikeUser;
-        }
-
-        return bootstrap != null
-            && bootstrap.defaultSessionSettings != null
-            && bootstrap.defaultSessionSettings.isHostLikeUser;
-    }
-
     private static bool IsPhotonReadyFailure(string reason)
     {
         return string.Equals(reason, "MissingBootstrap", StringComparison.OrdinalIgnoreCase)
@@ -635,6 +856,11 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
 
     private void ResolveReferences()
     {
+        if (detectedBottleSubscriber == null)
+        {
+            detectedBottleSubscriber = FindObjectOfType<DetectedBottlePoseSubscriber>(true);
+        }
+
         if (bootstrap == null)
         {
             EnsureBootstrap(nameof(ResolveReferences), false);
@@ -1000,6 +1226,46 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
     }
 
 #if FUSION_WEAVER && FUSION2
+    private static bool IsValidSharedRunner(NetworkRunner targetRunner)
+    {
+        return targetRunner != null
+            && targetRunner.IsRunning
+            && targetRunner.IsInSession
+            && targetRunner.GameMode == GameMode.Shared
+            && targetRunner.Topology == Topologies.Shared
+            && targetRunner.LocalPlayer != PlayerRef.None;
+    }
+
+    private static void LogRunnerInventory(NetworkRunner selectedRunner)
+    {
+        Debug.Log("[BottleSpawnCheck]"
+            + " runner=" + selectedRunner.name
+            + " state=" + selectedRunner.State
+            + " running=" + selectedRunner.IsRunning
+            + " inSession=" + selectedRunner.IsInSession
+            + " topology=" + selectedRunner.Topology
+            + " mode=" + selectedRunner.GameMode
+            + " localPlayer=" + selectedRunner.LocalPlayer
+            + " isServer=" + selectedRunner.IsServer
+            + " isClient=" + selectedRunner.IsClient
+            + " isSharedMaster=" + selectedRunner.IsSharedModeMasterClient
+            + " runnerCount=" + NetworkRunner.Instances.Count);
+
+        foreach (NetworkRunner candidateRunner in NetworkRunner.Instances)
+        {
+            if (candidateRunner == null) continue;
+            Debug.Log("[RunnerInventory]"
+                + " selected=" + (candidateRunner == selectedRunner)
+                + " name=" + candidateRunner.name
+                + " state=" + candidateRunner.State
+                + " running=" + candidateRunner.IsRunning
+                + " inSession=" + candidateRunner.IsInSession
+                + " topology=" + candidateRunner.Topology
+                + " mode=" + candidateRunner.GameMode
+                + " localPlayer=" + candidateRunner.LocalPlayer);
+        }
+    }
+
     private NetworkRunner ResolveRunner()
     {
         if (EnsureBootstrap(nameof(ResolveRunner), false) == null)
@@ -1048,6 +1314,7 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
         NetworkRunner runner = ResolveRunner();
         string networkId = FormatNetworkId(networkObject);
         observedBottleIds.Add(networkId);
+        CommunicationHealthMonitor.ReportSuccess(CommunicationChannel.BottleSync);
         lastSpawnedBottleNetworkId = networkId;
         if (sharedObject.SharedOrigin == SharedBottleOrigin.RosDetected
             && sharedObject.SharedDetectedBottleTrackId >= 0)
@@ -1061,7 +1328,8 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
 
         if ((fromLocalSpawnCall || localAuthority) && localBottleLogIds.Add(networkId))
         {
-            Debug.Log("[PhotonSharedBottleSpawner] BOTTLE_SPAWN_LOCAL"
+            CommunicationHealthMonitor.Verbose(CommunicationChannel.BottleSync,
+                "[PhotonSharedBottleSpawner] BOTTLE_SPAWN_LOCAL"
                 + " networkId=" + networkId
                 + " player=" + (runner != null && runner.IsRunning ? runner.LocalPlayer.ToString() : "None")
                 + " spawnedBy=" + sharedObject.DebugSpawnedByPlayer
@@ -1070,7 +1338,8 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
         else if (!localAuthority && remoteBottleLogIds.Add(networkId))
         {
             remoteSpawnObservedCount++;
-            Debug.Log("[PhotonSharedBottleSpawner] BOTTLE_SPAWN_REMOTE"
+            CommunicationHealthMonitor.Verbose(CommunicationChannel.BottleSync,
+                "[PhotonSharedBottleSpawner] BOTTLE_SPAWN_REMOTE"
                 + " networkId=" + networkId
                 + " player=" + (runner != null && runner.IsRunning ? runner.LocalPlayer.ToString() : "None")
                 + " stateAuthority=" + networkObject.StateAuthority
@@ -1091,10 +1360,12 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
         }
 
         runner.Despawn(target);
+        CommunicationHealthMonitor.ReportSuccess(CommunicationChannel.BottleSync);
         observedBottleIds.Remove(networkId);
         localBottleLogIds.Remove(networkId);
         remoteBottleLogIds.Remove(networkId);
-        Debug.Log("[PhotonSharedBottleSpawner] BOTTLE_DESPAWN"
+        CommunicationHealthMonitor.Verbose(CommunicationChannel.BottleSync,
+            "[PhotonSharedBottleSpawner] BOTTLE_DESPAWN"
             + " networkId=" + networkId
             + " player=" + runner.LocalPlayer);
     }
