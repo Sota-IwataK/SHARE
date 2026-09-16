@@ -67,7 +67,7 @@ public sealed class CanonicalBottleIdentityTransportTests
     }
 
     [Test]
-    public void GeneratedMessageUsesUint64AndRos2TimeTypes()
+    public void GeneratedMessageUsesExpectedRosNameAndUint64Types()
     {
         Assert.AreEqual(
             "share_semantic_interfaces/CanonicalBottleObservation",
@@ -76,41 +76,54 @@ public sealed class CanonicalBottleIdentityTransportTests
             typeof(CanonicalBottleObservationMsg).GetField("object_id").FieldType);
         Assert.AreEqual(typeof(ulong),
             typeof(CanonicalBottleObservationMsg).GetField("observation_sequence").FieldType);
+    }
+
+    [Test]
+    public void GeneratedMessageUsesRos2TimeTypes()
+    {
         Assert.AreEqual(typeof(TimeMsg),
             typeof(CanonicalBottleObservationMsg).GetField("observation_stamp").FieldType);
         Assert.AreEqual(typeof(int), typeof(TimeMsg).GetField("sec").FieldType);
         Assert.AreEqual(typeof(uint), typeof(TimeMsg).GetField("nanosec").FieldType);
     }
 
-    [TestCase(16_777_217UL)]
-    [TestCase(ulong.MaxValue)]
-    public void RosCdrRoundTripPreservesLargeIdsUint64AndTime(ulong objectId)
+    [Test]
+    public void RosCdrRoundTripPreservesRequiredUint64IdVectorsAndTime()
     {
-        CanonicalBottleObservationMsg input = new CanonicalBottleObservationMsg(
-            "source-a",
-            "session-a",
-            objectId,
-            CanonicalBottleObservationMsg.OBSERVED,
-            ulong.MaxValue,
-            new TimeMsg(int.MinValue, 999_999_999U),
-            "ros_time",
-            "camera/color_optical_frame");
+        ulong[] objectIds =
+        {
+            16_777_217UL,
+            (1UL << 63) + 17UL,
+            ulong.MaxValue
+        };
+        foreach (ulong objectId in objectIds)
+        {
+            CanonicalBottleObservationMsg input = new CanonicalBottleObservationMsg(
+                "source-a",
+                "session-a",
+                objectId,
+                CanonicalBottleObservationMsg.OBSERVED,
+                ulong.MaxValue,
+                new TimeMsg(int.MinValue, 999_999_999U),
+                "ros_time",
+                "camera/color_optical_frame");
 
-        MessageSerializer serializer = new MessageSerializer();
-        serializer.SerializeMessage(input);
-        MessageDeserializer deserializer = new MessageDeserializer();
-        deserializer.InitWithBuffer(serializer.GetBytes());
-        CanonicalBottleObservationMsg output =
-            CanonicalBottleObservationMsg.Deserialize(deserializer);
+            MessageSerializer serializer = new MessageSerializer();
+            serializer.SerializeMessage(input);
+            MessageDeserializer deserializer = new MessageDeserializer();
+            deserializer.InitWithBuffer(serializer.GetBytes());
+            CanonicalBottleObservationMsg output =
+                CanonicalBottleObservationMsg.Deserialize(deserializer);
 
-        Assert.AreEqual(input.source_id, output.source_id);
-        Assert.AreEqual(input.session_id, output.session_id);
-        Assert.AreEqual(objectId, output.object_id);
-        Assert.AreEqual(ulong.MaxValue, output.observation_sequence);
-        Assert.AreEqual(int.MinValue, output.observation_stamp.sec);
-        Assert.AreEqual(999_999_999U, output.observation_stamp.nanosec);
-        Assert.AreEqual(input.observation_clock_domain, output.observation_clock_domain);
-        Assert.AreEqual(input.frame_id, output.frame_id);
+            Assert.AreEqual(input.source_id, output.source_id);
+            Assert.AreEqual(input.session_id, output.session_id);
+            Assert.AreEqual(objectId, output.object_id);
+            Assert.AreEqual(ulong.MaxValue, output.observation_sequence);
+            Assert.AreEqual(int.MinValue, output.observation_stamp.sec);
+            Assert.AreEqual(999_999_999U, output.observation_stamp.nanosec);
+            Assert.AreEqual(input.observation_clock_domain, output.observation_clock_domain);
+            Assert.AreEqual(input.frame_id, output.frame_id);
+        }
     }
 
     [Test]
@@ -361,7 +374,12 @@ public sealed class CanonicalBottleIdentityTransportTests
 
         Assert.AreEqual(0, CanonicalBottleBinding.ActiveBindingCount);
         spawner.bottleIdentityMode = BottleIdentityMode.Canonical;
+        Assert.IsFalse(BottleIdentityModeRuntime.IsLegacyActive());
+        Assert.IsFalse(spawner.SyncBottlesFromLatestDetections());
         Assert.IsFalse(spawner.HasDetectedBottleTrack(42));
+        Assert.IsFalse(spawner.TrySpawnOrUpdateDetectedBottle(
+            42, Vector3.zero, Quaternion.identity, false, false));
+        Assert.IsFalse(spawner.TryDespawnDetectedBottleTrack(42));
         Assert.IsFalse(spawner.CanSpawnSharedBottle(out string legacyReason));
         Assert.AreEqual("CanonicalModeNoLegacySpawnFallback", legacyReason);
         UnityEngine.Object.DestroyImmediate(host);
