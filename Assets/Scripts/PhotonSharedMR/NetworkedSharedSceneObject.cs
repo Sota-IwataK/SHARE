@@ -17,7 +17,8 @@ public enum PhotonSharedBottleDetectionVisualState
 public enum SharedBottleOrigin
 {
     Manual = 0,
-    RosDetected = 1
+    RosDetected = 1,
+    CanonicalRosObservation = 2
 }
 
 [DisallowMultipleComponent]
@@ -69,6 +70,22 @@ public class NetworkedSharedSceneObject :
     private ObjectManipulator objectManipulator;
     private bool objectManipulatorCallbacksRegistered;
     private bool remoteInteractionEnabledLogged;
+    private bool canonicalBindingObserved;
+    private CanonicalBottleIdentity lastCanonicalBindingIdentity;
+    private ulong lastCanonicalBindingSequence;
+
+#if !FUSION_WEAVER || !FUSION2
+    private bool localCanonicalIdentityValid;
+    private string localCanonicalSourceId = string.Empty;
+    private string localCanonicalSessionId = string.Empty;
+    private ulong localCanonicalObjectId;
+    private CanonicalBottleLifecycle localCanonicalLifecycle;
+    private ulong localCanonicalObservationSequence;
+    private int localCanonicalObservationStampSec;
+    private uint localCanonicalObservationStampNanosec;
+    private string localCanonicalObservationClockDomain = string.Empty;
+    private string localCanonicalFrameId = string.Empty;
+#endif
 
 #if UNITY_EDITOR || UNITY_STANDALONE
     private bool pcMousePointerHeld;
@@ -105,6 +122,16 @@ public class NetworkedSharedSceneObject :
     [Networked] public long TelemetrySourceTimestampValue { get; set; }
     [Networked] public long TelemetrySharedTimestampValue { get; set; }
     [Networked] public int TelemetrySequenceValue { get; set; }
+    [Networked] public NetworkBool CanonicalIdentityValid { get; set; }
+    [Networked] public NetworkString<_64> CanonicalSourceIdValue { get; set; }
+    [Networked] public NetworkString<_128> CanonicalSessionIdValue { get; set; }
+    [Networked] public ulong CanonicalObjectIdValue { get; set; }
+    [Networked] public int CanonicalLifecycleValue { get; set; }
+    [Networked] public ulong CanonicalObservationSequenceValue { get; set; }
+    [Networked] public int CanonicalObservationStampSecValue { get; set; }
+    [Networked] public uint CanonicalObservationStampNanosecValue { get; set; }
+    [Networked] public NetworkString<_64> CanonicalObservationClockDomainValue { get; set; }
+    [Networked] public NetworkString<_128> CanonicalFrameIdValue { get; set; }
 
     public string DebugSpawnedByPlayer => SpawnedByPlayer.ToString();
     public string DebugSpawnedAtRunnerTime => SpawnedAtRunnerTime.ToString("F3");
@@ -147,6 +174,7 @@ public class NetworkedSharedSceneObject :
     public override void Spawned()
     {
         EnsureSharedBottleCollidersEnabled();
+        SynchronizeCanonicalBinding(true);
         if (HasStateAuthority)
         {
             PublishAuthorityPose("Spawned", true);
@@ -181,6 +209,7 @@ public class NetworkedSharedSceneObject :
 
     public override void FixedUpdateNetwork()
     {
+        SynchronizeCanonicalBinding(false);
         TrackAuthorityChanged();
         CancelLocalGrabIfLockedByOther();
         TryActivateLocalGrabIfGranted();
@@ -207,6 +236,7 @@ public class NetworkedSharedSceneObject :
 
     public override void Render()
     {
+        SynchronizeCanonicalBinding(false);
         TrackAuthorityChanged();
         CancelLocalGrabIfLockedByOther();
         TryActivateLocalGrabIfGranted();
@@ -918,6 +948,185 @@ public class NetworkedSharedSceneObject :
         localDragActive = false;
     }
 #endif
+
+    public bool HasCanonicalBottleIdentity
+    {
+        get
+        {
+#if FUSION_WEAVER && FUSION2
+            return CanonicalIdentityValid;
+#else
+            return localCanonicalIdentityValid;
+#endif
+        }
+    }
+
+    public bool TrySetCanonicalBottleObservation(
+        CanonicalBottleObservation observation,
+        out string reason)
+    {
+        if (!CanonicalBottlePhotonPayload.TryCreate(
+            observation,
+            out CanonicalBottlePhotonPayload payload,
+            out reason))
+        {
+            return false;
+        }
+        if (CanonicalBottleBinding.TryFind(
+            observation.Identity,
+            out CanonicalBottleBinding existing)
+            && existing.gameObject != gameObject)
+        {
+            reason = "DuplicateFullKeyAlreadyBound";
+            return false;
+        }
+
+#if FUSION_WEAVER && FUSION2
+        if (Object == null || !HasStateAuthority)
+        {
+            reason = "CanonicalMetadataRequiresStateAuthority";
+            return false;
+        }
+
+        NetworkString<_64> sourceId = default;
+        NetworkString<_128> sessionId = default;
+        NetworkString<_64> clockDomain = default;
+        NetworkString<_128> frame = default;
+        if (!sourceId.Set(payload.SourceId)
+            || !sessionId.Set(payload.SessionId)
+            || !clockDomain.Set(payload.ObservationClockDomain)
+            || !frame.Set(payload.FrameId))
+        {
+            reason = "PhotonNetworkStringWouldTruncate";
+            return false;
+        }
+#endif
+
+        CanonicalBottleBinding binding = GetComponent<CanonicalBottleBinding>();
+        if (binding == null)
+        {
+            binding = gameObject.AddComponent<CanonicalBottleBinding>();
+        }
+        if (!binding.TryApplyObservation(observation, out _, out reason))
+        {
+            return false;
+        }
+
+#if FUSION_WEAVER && FUSION2
+        CanonicalSourceIdValue = sourceId;
+        CanonicalSessionIdValue = sessionId;
+        CanonicalObjectIdValue = payload.ObjectId;
+        CanonicalLifecycleValue = (int)payload.Lifecycle;
+        CanonicalObservationSequenceValue = payload.ObservationSequence;
+        CanonicalObservationStampSecValue = payload.StampSec;
+        CanonicalObservationStampNanosecValue = payload.StampNanosec;
+        CanonicalObservationClockDomainValue = clockDomain;
+        CanonicalFrameIdValue = frame;
+        CanonicalIdentityValid = true;
+        DetectedBottleTrackId = -1;
+        NetworkBottleOrigin = (int)SharedBottleOrigin.CanonicalRosObservation;
+#else
+        localCanonicalSourceId = payload.SourceId;
+        localCanonicalSessionId = payload.SessionId;
+        localCanonicalObjectId = payload.ObjectId;
+        localCanonicalLifecycle = payload.Lifecycle;
+        localCanonicalObservationSequence = payload.ObservationSequence;
+        localCanonicalObservationStampSec = payload.StampSec;
+        localCanonicalObservationStampNanosec = payload.StampNanosec;
+        localCanonicalObservationClockDomain = payload.ObservationClockDomain;
+        localCanonicalFrameId = payload.FrameId;
+        localCanonicalIdentityValid = true;
+        detectedBottleTrackId = -1;
+        bottleOrigin = SharedBottleOrigin.CanonicalRosObservation;
+#endif
+        SynchronizeCanonicalBinding(true);
+        reason = "CanonicalMetadataApplied";
+        return true;
+    }
+
+    public bool TryGetCanonicalBottleObservation(
+        out CanonicalBottleObservation observation)
+    {
+        if (!HasCanonicalBottleIdentity)
+        {
+            observation = default;
+            return false;
+        }
+
+        try
+        {
+#if FUSION_WEAVER && FUSION2
+            observation = new CanonicalBottleObservation(
+                new CanonicalBottleIdentity(
+                    CanonicalSourceIdValue.ToString(),
+                    CanonicalSessionIdValue.ToString(),
+                    CanonicalObjectIdValue),
+                (CanonicalBottleLifecycle)CanonicalLifecycleValue,
+                new CanonicalBottleObservationMetadata(
+                    CanonicalObservationSequenceValue,
+                    CanonicalObservationStampSecValue,
+                    CanonicalObservationStampNanosecValue,
+                    CanonicalObservationClockDomainValue.ToString(),
+                    CanonicalFrameIdValue.ToString()));
+#else
+            observation = new CanonicalBottleObservation(
+                new CanonicalBottleIdentity(
+                    localCanonicalSourceId,
+                    localCanonicalSessionId,
+                    localCanonicalObjectId),
+                localCanonicalLifecycle,
+                new CanonicalBottleObservationMetadata(
+                    localCanonicalObservationSequence,
+                    localCanonicalObservationStampSec,
+                    localCanonicalObservationStampNanosec,
+                    localCanonicalObservationClockDomain,
+                    localCanonicalFrameId));
+#endif
+        }
+        catch (ArgumentException)
+        {
+            observation = default;
+            return false;
+        }
+        return true;
+    }
+
+    private void SynchronizeCanonicalBinding(bool force)
+    {
+        if (!TryGetCanonicalBottleObservation(
+            out CanonicalBottleObservation observation))
+        {
+            return;
+        }
+        if (!force
+            && canonicalBindingObserved
+            && lastCanonicalBindingIdentity == observation.Identity
+            && lastCanonicalBindingSequence == observation.Metadata.ObservationSequence)
+        {
+            return;
+        }
+
+        CanonicalBottleBinding binding = GetComponent<CanonicalBottleBinding>();
+        if (binding == null)
+        {
+            binding = gameObject.AddComponent<CanonicalBottleBinding>();
+        }
+        if (!binding.TryApplyObservation(
+            observation,
+            out CanonicalObservationDisposition disposition,
+            out string reason))
+        {
+            Debug.LogError(
+                "[NetworkedSharedSceneObject] Canonical binding rejected disposition="
+                + disposition + " reason=" + reason + " " + observation,
+                this);
+            return;
+        }
+
+        canonicalBindingObserved = true;
+        lastCanonicalBindingIdentity = observation.Identity;
+        lastCanonicalBindingSequence = observation.Metadata.ObservationSequence;
+    }
 
 #if UNITY_EDITOR || UNITY_STANDALONE
     private void Update()

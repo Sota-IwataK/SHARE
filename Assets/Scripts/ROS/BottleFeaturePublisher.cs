@@ -55,6 +55,12 @@ public sealed class BottleFeaturePublisher : RosTcpPublisher<Float32MultiArrayMs
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void EnsurePublisherExists()
     {
+        if (!BottleIdentityModeRuntime.IsLegacyActive())
+        {
+            Debug.Log(
+                "[BottleFeaturePublisher] Legacy feature publisher remains OFF in Canonical mode.");
+            return;
+        }
         if (FindObjectOfType<BottleFeaturePublisher>(true) != null)
         {
             return;
@@ -84,6 +90,14 @@ public sealed class BottleFeaturePublisher : RosTcpPublisher<Float32MultiArrayMs
 
     protected override void Start()
     {
+        if (!BottleIdentityModeRuntime.IsLegacyActive())
+        {
+            Debug.Log(
+                "[BottleFeaturePublisher] Disabled: Canonical mode has no canonical feature producer.",
+                this);
+            enabled = false;
+            return;
+        }
         base.Start();
         ResolveReferences();
         message = new Float32MultiArrayMsg
@@ -124,6 +138,14 @@ public sealed class BottleFeaturePublisher : RosTcpPublisher<Float32MultiArrayMs
 
     private void Update()
     {
+        if (!BottleIdentityModeRuntime.IsLegacyActive())
+        {
+            Debug.LogError(
+                "[BottleFeaturePublisher] Runtime mode changed; legacy publisher stopped without fallback.",
+                this);
+            enabled = false;
+            return;
+        }
         UpdatePalmState();
         if (Time.unscaledTime < nextPublishTime)
         {

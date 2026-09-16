@@ -1,0 +1,5 @@
+branch=feature/p103b-canonical-identity
+head=84ecd406aaeb7f11ac302b570e3e7cecc8138bfd
+unity=2022.3.62f2
+ros_tcp_connector=v0.7.1#3288e188a2d6ac2c623cde090ae53401307eddeb
+build_scene=Assets/Scenes/main.unity

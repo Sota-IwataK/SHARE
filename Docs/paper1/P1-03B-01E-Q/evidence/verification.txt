@@ -1,0 +1,8 @@
+ROS regression: 299 tests, 0 errors, 0 failures, 37 skipped (262 passed)
+Isolated DDS: 1 passed, 7 deselected
+Unity NUnit: 16 cases authored; not executed because Unity Editor is unavailable
+Static contract audit: STATIC_CONTRACT_AUDIT_PASS checks=28
+C# delimiter balance: PASS
+C# preprocessor balance: PASS
+git diff --check: PASS
+Unity/dotnet/csc/mcs toolchain: not installed in this environment

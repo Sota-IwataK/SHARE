@@ -11,10 +11,12 @@ using Fusion;
 #endif
 
 [DisallowMultipleComponent]
-public class PhotonSharedBottleSpawner : MonoBehaviour
+public class PhotonSharedBottleSpawner : MonoBehaviour, ICanonicalBottleObservationSink
 {
     [Header("Shared Bottle Spawn")]
     public bool enableSharedBottleSpawn = true;
+    [Tooltip("Legacy is the default. Canonical has no TrackId fallback.")]
+    public BottleIdentityMode bottleIdentityMode = BottleIdentityMode.Legacy;
     public PhotonFusionSharedRoomBootstrap bootstrap;
     public DetectedBottlePoseSubscriber detectedBottleSubscriber;
     public GameObject networkBottlePrefab;
@@ -53,6 +55,8 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
     private string lastSpawnError = "None";
     private readonly Dictionary<int, NetworkedSharedSceneObject> spawnedBottleByTrackId =
         new Dictionary<int, NetworkedSharedSceneObject>();
+    private readonly Dictionary<CanonicalBottleIdentity, NetworkedSharedSceneObject> spawnedBottleByCanonicalKey =
+        new Dictionary<CanonicalBottleIdentity, NetworkedSharedSceneObject>();
     private readonly Dictionary<int, bool> rosBottleWasGrabbedByTrackId =
         new Dictionary<int, bool>();
     private readonly Dictionary<int, Vector3> lastRosPoseAppliedPositionByTrackId =
@@ -63,6 +67,8 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
         new Dictionary<int, float>();
     private readonly Dictionary<int, string> lastIgnoredRosPoseReasonByTrackId =
         new Dictionary<int, string>();
+
+    public BottleIdentityMode BottleIdentityMode => bottleIdentityMode;
 
 #if FUSION_WEAVER && FUSION2
     private NetworkObject pendingDespawnObject;
@@ -166,6 +172,12 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
     {
         Debug.Log("[PhotonSharedBottleSpawner] Sync detected bottles requested");
         ResolveReferences();
+        if (bottleIdentityMode != BottleIdentityMode.Legacy)
+        {
+            Debug.LogWarning(
+                "[PhotonSharedBottleSpawner] Legacy TrackId synchronization rejected in Canonical mode.");
+            return false;
+        }
         if (!CanSpawnSharedBottle(out string reason))
         {
             Debug.LogWarning("[PhotonSharedBottleSpawner] Latest detection pose rejected reason=" + reason);
@@ -293,6 +305,10 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
 
     public bool HasDetectedBottleTrack(int trackId)
     {
+        if (bottleIdentityMode != BottleIdentityMode.Legacy)
+        {
+            return false;
+        }
         return ResolveDetectedRosBottle(Mathf.Max(0, trackId)) != null;
     }
 
@@ -321,6 +337,11 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
     {
         ResolveReferences();
         int resolvedTrackId = Mathf.Max(0, trackId);
+        if (bottleIdentityMode != BottleIdentityMode.Legacy)
+        {
+            LogIgnoredRosBottlePose(resolvedTrackId, "CanonicalModeNoTrackIdFallback");
+            return false;
+        }
 
 #if FUSION_WEAVER && FUSION2
         NetworkRunner runner = ResolveRunner();
@@ -436,6 +457,11 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
     public bool TryDespawnDetectedBottleTrack(int trackId)
     {
         int resolvedTrackId = Mathf.Max(0, trackId);
+        if (bottleIdentityMode != BottleIdentityMode.Legacy)
+        {
+            LogIgnoredRosBottlePose(resolvedTrackId, "CanonicalModeNoTrackIdFallback");
+            return false;
+        }
 #if FUSION_WEAVER && FUSION2
         NetworkedSharedSceneObject sharedBottle = ResolveDetectedRosBottle(resolvedTrackId);
         if (sharedBottle == null || sharedBottle.Object == null)
@@ -475,8 +501,125 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
 #endif
     }
 
+    public bool TryApplyCanonicalBottleObservation(
+        CanonicalBottleObservation observation,
+        out string reason)
+    {
+        if (bottleIdentityMode != BottleIdentityMode.Canonical)
+        {
+            reason = "CanonicalModeInactiveNoLegacyFallback";
+            return false;
+        }
+        if (!CanonicalBottlePhotonPayload.TryCreate(observation, out _, out reason))
+        {
+            return false;
+        }
+
+        NetworkedSharedSceneObject sharedBottle = ResolveCanonicalBottle(observation.Identity);
+
+#if FUSION_WEAVER && FUSION2
+        if (observation.Lifecycle == CanonicalBottleLifecycle.Observed && sharedBottle == null)
+        {
+            if (!CanSpawnBottleCore(false, false, out reason))
+            {
+                return false;
+            }
+            if (!TryResolveSpawnPose(out Vector3 position, out Quaternion rotation))
+            {
+                reason = "CanonicalDisplaySpawnAnchorMissing";
+                return false;
+            }
+
+            sharedBottle = RequestSpawnInternal(
+                position,
+                rotation,
+                "CanonicalObservation:" + observation.Identity,
+                -1,
+                SharedBottleOrigin.CanonicalRosObservation,
+                observation);
+            if (sharedBottle == null)
+            {
+                reason = string.IsNullOrWhiteSpace(lastSpawnError)
+                    ? "CanonicalSpawnFailed"
+                    : lastSpawnError;
+                return false;
+            }
+
+            spawnedBottleByCanonicalKey[observation.Identity] = sharedBottle;
+            reason = "CanonicalBottleSpawned";
+            return true;
+        }
+
+        if (sharedBottle == null)
+        {
+            spawnedBottleByCanonicalKey.Remove(observation.Identity);
+            reason = observation.Lifecycle == CanonicalBottleLifecycle.Lost
+                ? "CanonicalLostWithoutLocalBinding"
+                : "CanonicalRemovedWithoutLocalBinding";
+            return true;
+        }
+
+        if (!sharedBottle.HasLocalStateAuthority
+            && !sharedBottle.TryRequestSharedStateAuthority("CanonicalObservation"))
+        {
+            reason = "CanonicalMetadataNotAuthority";
+            return false;
+        }
+
+        NetworkRunner removalRunner = null;
+        if (observation.Lifecycle == CanonicalBottleLifecycle.Removed)
+        {
+            removalRunner = ResolveRunner();
+            if (removalRunner == null
+                || !removalRunner.IsRunning
+                || sharedBottle.Object == null)
+            {
+                reason = "CanonicalRemoveRunnerUnavailable";
+                return false;
+            }
+        }
+        if (!sharedBottle.TrySetCanonicalBottleObservation(observation, out reason))
+        {
+            return false;
+        }
+
+        if (observation.Lifecycle == CanonicalBottleLifecycle.Removed)
+        {
+            DespawnNetworkBottle(removalRunner, sharedBottle.Object);
+            spawnedBottleByCanonicalKey.Remove(observation.Identity);
+            reason = "CanonicalBottleRemoved";
+            return true;
+        }
+
+        spawnedBottleByCanonicalKey[observation.Identity] = sharedBottle;
+        reason = observation.Lifecycle == CanonicalBottleLifecycle.Lost
+            ? "CanonicalBottleMarkedLost"
+            : "CanonicalBottleUpdated";
+        return true;
+#else
+        reason = observation.Lifecycle == CanonicalBottleLifecycle.Observed
+            ? "FusionDisabledCanonicalSpawnUnavailable"
+            : "CanonicalLifecycleRecordedWithoutFusion";
+        return observation.Lifecycle != CanonicalBottleLifecycle.Observed;
+#endif
+    }
+
     public bool CanSpawnSharedBottle(out string reason)
     {
+        return CanSpawnBottleCore(true, true, out reason);
+    }
+
+    private bool CanSpawnBottleCore(
+        bool requireDetectedBottleSubscriber,
+        bool requireLegacyMode,
+        out string reason)
+    {
+        if (requireLegacyMode && bottleIdentityMode != BottleIdentityMode.Legacy)
+        {
+            reason = "CanonicalModeNoLegacySpawnFallback";
+            return false;
+        }
+
         ResolveReferences();
         EnsureBootstrap(nameof(CanSpawnSharedBottle), false);
 
@@ -555,7 +698,7 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
             return false;
         }
 
-        if (detectedBottleSubscriber == null)
+        if (requireDetectedBottleSubscriber && detectedBottleSubscriber == null)
         {
             reason = "MissingDetectedBottlePoseSubscriber";
             return false;
@@ -617,11 +760,26 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
         Quaternion rotation,
         string source,
         int detectedTrackId = -1,
-        SharedBottleOrigin bottleOrigin = SharedBottleOrigin.Manual)
+        SharedBottleOrigin bottleOrigin = SharedBottleOrigin.Manual,
+        CanonicalBottleObservation? canonicalObservation = null)
     {
         localSpawnRequestCount++;
         lastSpawnError = "None";
         string sourceSuffix = string.IsNullOrWhiteSpace(source) ? string.Empty : " source=" + source;
+
+        if (bottleOrigin == SharedBottleOrigin.CanonicalRosObservation)
+        {
+            if (bottleIdentityMode != BottleIdentityMode.Canonical || !canonicalObservation.HasValue)
+            {
+                FailSpawn("CanonicalSpawnRequiresCanonicalModeAndObservation");
+                return null;
+            }
+        }
+        else if (bottleIdentityMode != BottleIdentityMode.Legacy)
+        {
+            FailSpawn("CanonicalModeNoLegacySpawnFallback");
+            return null;
+        }
 
 #if FUSION_WEAVER && FUSION2
         NetworkRunner runner = ResolveRunner();
@@ -692,7 +850,8 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
                         spawnRunner.LocalPlayer,
                         (float)spawnRunner.SimulationTime,
                         detectedTrackId,
-                        bottleOrigin);
+                        bottleOrigin,
+                        canonicalObservation);
                 });
 
             if (spawned == null)
@@ -787,6 +946,45 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
         }
 
         spawnedBottleByTrackId.Remove(trackId);
+        return null;
+    }
+
+    private NetworkedSharedSceneObject ResolveCanonicalBottle(CanonicalBottleIdentity identity)
+    {
+        if (spawnedBottleByCanonicalKey.TryGetValue(
+            identity,
+            out NetworkedSharedSceneObject cachedBottle)
+            && cachedBottle != null
+            && cachedBottle.isActiveAndEnabled
+            && cachedBottle.IsPhotonSharedNetworkBottle
+            && cachedBottle.SharedOrigin == SharedBottleOrigin.CanonicalRosObservation
+            && cachedBottle.TryGetCanonicalBottleObservation(
+                out CanonicalBottleObservation cachedObservation)
+            && cachedObservation.Identity == identity)
+        {
+            return cachedBottle;
+        }
+
+        NetworkedSharedSceneObject[] sharedObjects =
+            FindObjectsOfType<NetworkedSharedSceneObject>(true);
+        for (int i = 0; i < sharedObjects.Length; i++)
+        {
+            NetworkedSharedSceneObject sharedObject = sharedObjects[i];
+            if (sharedObject == null
+                || !sharedObject.IsPhotonSharedNetworkBottle
+                || sharedObject.SharedOrigin != SharedBottleOrigin.CanonicalRosObservation
+                || !sharedObject.TryGetCanonicalBottleObservation(
+                    out CanonicalBottleObservation observation)
+                || observation.Identity != identity)
+            {
+                continue;
+            }
+
+            spawnedBottleByCanonicalKey[identity] = sharedObject;
+            return sharedObject;
+        }
+
+        spawnedBottleByCanonicalKey.Remove(identity);
         return null;
     }
 
@@ -1264,7 +1462,8 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
         PlayerRef spawnedBy,
         float spawnedAtRunnerTime,
         int detectedTrackId,
-        SharedBottleOrigin bottleOrigin)
+        SharedBottleOrigin bottleOrigin,
+        CanonicalBottleObservation? canonicalObservation)
     {
         NetworkedSharedSceneObject sharedObject = obj != null ? obj.GetComponent<NetworkedSharedSceneObject>() : null;
         if (sharedObject == null)
@@ -1279,6 +1478,14 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
         sharedObject.isPhotonSharedNetworkBottle = true;
         sharedObject.SetSharedSpawnMetadata(spawnedBy, spawnedAtRunnerTime);
         sharedObject.SetDetectedBottleMetadata(detectedTrackId, bottleOrigin);
+        if (canonicalObservation.HasValue
+            && !sharedObject.TrySetCanonicalBottleObservation(
+                canonicalObservation.Value,
+                out string reason))
+        {
+            throw new InvalidOperationException(
+                "Canonical identity could not be attached atomically: " + reason);
+        }
     }
 
     private void RegisterObservedBottle(NetworkObject networkObject, bool fromLocalSpawnCall)
@@ -1303,6 +1510,24 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
             && sharedObject.SharedDetectedBottleTrackId >= 0)
         {
             spawnedBottleByTrackId[sharedObject.SharedDetectedBottleTrackId] = sharedObject;
+        }
+        if (sharedObject.SharedOrigin == SharedBottleOrigin.CanonicalRosObservation
+            && sharedObject.TryGetCanonicalBottleObservation(
+                out CanonicalBottleObservation canonicalObservation))
+        {
+            if (spawnedBottleByCanonicalKey.TryGetValue(
+                canonicalObservation.Identity,
+                out NetworkedSharedSceneObject existing)
+                && existing != null
+                && existing != sharedObject)
+            {
+                Debug.LogError(
+                    "[PhotonSharedBottleSpawner] Duplicate canonical full-key rejected key="
+                    + canonicalObservation.Identity,
+                    sharedObject);
+                return;
+            }
+            spawnedBottleByCanonicalKey[canonicalObservation.Identity] = sharedObject;
         }
 
         bool localAuthority = runner != null
@@ -1340,6 +1565,13 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
             && sharedObject.SharedDetectedBottleTrackId >= 0)
         {
             RemoveRosTrackState(sharedObject.SharedDetectedBottleTrackId);
+        }
+        if (sharedObject != null
+            && sharedObject.SharedOrigin == SharedBottleOrigin.CanonicalRosObservation
+            && sharedObject.TryGetCanonicalBottleObservation(
+                out CanonicalBottleObservation canonicalObservation))
+        {
+            spawnedBottleByCanonicalKey.Remove(canonicalObservation.Identity);
         }
 
         runner.Despawn(target);

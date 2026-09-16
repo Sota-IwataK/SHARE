@@ -218,6 +218,7 @@ public static class SharePhotonSharedMRSceneConfigurator
         GameObject spawnerObject = EnsureChild(root, "PhotonSharedBottleSpawner");
         DestroyChildIfExists(spawnerObject, "SharedBottleSpawnerCanvas");
         PhotonSharedBottleSpawner bottleSpawner = EnsureComponent<PhotonSharedBottleSpawner>(spawnerObject);
+        EnsureComponent<CanonicalBottleObservationSubscriber>(spawnerObject);
         bottleSpawner.bootstrap = bootstrap;
         bottleSpawner.networkBottlePrefab = networkBottlePrefab;
         bottleSpawner.spawnAnchor = Camera.main != null ? Camera.main.transform : null;
@@ -326,6 +327,8 @@ public static class SharePhotonSharedMRSceneConfigurator
             + HasComponent<PhotonSharedMRDebugPanel>("DebugPanel"));
         Debug.Log("[SharePhotonSharedMRSceneConfigurator] VERIFY bottleSpawner="
             + HasComponent<PhotonSharedBottleSpawner>("PhotonSharedBottleSpawner"));
+        Debug.Log("[SharePhotonSharedMRSceneConfigurator] VERIFY canonicalBottleObservationSubscriber="
+            + HasComponent<CanonicalBottleObservationSubscriber>("PhotonSharedBottleSpawner"));
 
         Debug.Log("[SharePhotonSharedMRSceneConfigurator] VERIFY_COUNTS"
             + " PhotonSharedMR=" + CountSceneObjectsNamed("PhotonSharedMR")
@@ -352,6 +355,8 @@ public static class SharePhotonSharedMRSceneConfigurator
             + " HmdFrontSpawnUI=" + CountHmdFrontSpawnUiObjects()
             + " DebugPanel=" + CountSceneObjectsNamed("DebugPanel")
             + " PhotonSharedBottleSpawner=" + CountSceneObjectsNamed("PhotonSharedBottleSpawner")
+            + " CanonicalBottleObservationSubscriber="
+            + CountComponentsInScene<CanonicalBottleObservationSubscriber>()
             + " PhotonSharedRoomBootstrap=" + CountSceneObjectsNamed("PhotonSharedRoomBootstrap")
             + " HmdOverheadCursorScene=" + CountComponentsInScene<HmdOverheadCursor>()
             + " HmdOverheadCursorPrefab=" + PrefabComponentCount<HmdOverheadCursor>(AvatarPrefabPath));
