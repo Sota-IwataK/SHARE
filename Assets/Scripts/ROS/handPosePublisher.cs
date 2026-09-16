@@ -43,6 +43,10 @@ public class handPosePublisher : MonoBehaviour
     [SerializeField, Min(0.1f)] private float countdownDistanceFromHmdM = 0.60f;
     [SerializeField] private Vector3 countdownLocalOffset = new Vector3(0f, -0.12f, 0f);
 
+    [SerializeField] private bool useSharedPhotonRouting = false;
+    [SerializeField] private bool enablePalmPoseWorldDiag = false;
+
+
     public static handPosePublisher ActiveInstance { get; private set; }
     public static handPosePublisher LastPublishCandidate { get; private set; }
 
@@ -147,6 +151,154 @@ public class handPosePublisher : MonoBehaviour
     {
         SetPublishEnabled(!publishEnabled);
     }
+
+    private bool TryResolvePublisherTopic(
+    RosInputTopicKey topicKey,
+    string fallbackTopic,
+    out string resolvedTopic,
+    out string reason)
+{
+    // SoloモードではPhotonユーザーを必要としない
+    if (!useSharedPhotonRouting)
+    {
+        resolvedTopic = fallbackTopic;
+        reason = null;
+        return true;
+    }
+
+    // SharedモードだけRosTopicProviderによるユーザー別ルーティングを使う
+    return RosTopicProvider.TryResolveTopic(
+        topicKey,
+        fallbackTopic,
+        out resolvedTopic,
+        out reason
+    );
+}
+
+    private void EnsurePublisher()
+{
+    if (!Application.isPlaying)
+    {
+        return;
+    }
+
+    EnsurePalmPoseWorldTopicName();
+
+    ros ??= ROSConnection.GetOrCreateInstance();
+    rosReady = ros != null;
+
+    if (!rosReady)
+    {
+        return;
+    }
+
+    if (enablePalmPoseWorldDiag
+        && registeredPalmPoseWorldDiagTopic != PalmPoseWorldDiagTopic)
+    {
+        ros.RegisterPublisher<RosMessageTypes.Geometry.PoseStampedMsg>(
+            PalmPoseWorldDiagTopic
+        );
+
+        registeredPalmPoseWorldDiagTopic = PalmPoseWorldDiagTopic;
+
+        Debug.Log(
+            "[PalmPoseWorldDiag] publisher registered: "
+            + PalmPoseWorldDiagTopic
+        );
+    }
+
+    if (!TryResolvePublisherTopic(
+            RosInputTopicKey.PalmPose,
+            topicName,
+            out resolvedTopicName,
+            out var primaryResolveReason))
+    {
+        registered = false;
+        Debug.LogError(
+            "[handPosePublisher] Failed to resolve PalmPose topic: "
+            + primaryResolveReason
+        );
+    }
+    else
+    {
+        if (registeredTopic != resolvedTopicName)
+        {
+            ros.RegisterPublisher<RosMessageTypes.Geometry.PoseStampedMsg>(
+                resolvedTopicName
+            );
+
+            registeredTopic = resolvedTopicName;
+            Debug.Log(
+                "[handPosePublisher] RegisterPublisher "
+                + resolvedTopicName
+            );
+        }
+
+        registered = true;
+    }
+
+    if (!TryResolvePublisherTopic(
+            RosInputTopicKey.PalmPoseHmdRelative,
+            hmdRelativeTopicName,
+            out resolvedHmdRelativeTopicName,
+            out var hmdResolveReason))
+    {
+        hmdRelativeRegistered = false;
+        Debug.LogError(
+            "[handPosePublisher] Failed to resolve PalmPoseHmdRelative topic: "
+            + hmdResolveReason
+        );
+    }
+    else
+    {
+        if (registeredHmdRelativeTopic != resolvedHmdRelativeTopicName)
+        {
+            ros.RegisterPublisher<RosMessageTypes.Geometry.PoseStampedMsg>(
+                resolvedHmdRelativeTopicName
+            );
+
+            registeredHmdRelativeTopic = resolvedHmdRelativeTopicName;
+
+            Debug.Log(
+                "[handPosePublisher] RegisterPublisher "
+                + resolvedHmdRelativeTopicName
+            );
+        }
+
+        hmdRelativeRegistered = true;
+    }
+
+    if (!TryResolvePublisherTopic(
+            RosInputTopicKey.PalmPoseWorld,
+            PalmPoseWorldTopic,
+            out resolvedWorldTopicName,
+            out var worldResolveReason))
+    {
+        worldRegistered = false;
+        Debug.LogError(
+            "[handPosePublisher] Failed to resolve PalmPoseWorld topic: "
+            + worldResolveReason
+        );
+    }
+    else
+    {
+        if (registeredWorldTopic != resolvedWorldTopicName)
+        {
+            ros.RegisterPublisher<RosMessageTypes.Geometry.PoseStampedMsg>(
+                resolvedWorldTopicName
+            );
+
+            registeredWorldTopic = resolvedWorldTopicName;
+
+            Debug.Log(
+                "[PalmPoseWorld] publisher registered: "
+                + resolvedWorldTopicName
+            );
+        }
+
+        worldRegistered = true;
+    }
+}
 
     public void BeginLeftPalmPosePublishWithDelay()
     {
@@ -306,12 +458,18 @@ public class handPosePublisher : MonoBehaviour
 
     private void EnsurePalmPoseWorldDiagCoroutine()
     {
+        if (!enablePalmPoseWorldDiag)
+        {
+            return;
+        }
+
         if (!Application.isPlaying || palmPoseWorldDiagCoroutine != null)
         {
             return;
         }
 
-        palmPoseWorldDiagCoroutine = StartCoroutine(PublishPalmPoseWorldDiagLoop());
+        palmPoseWorldDiagCoroutine =
+            StartCoroutine(PublishPalmPoseWorldDiagLoop());
     }
 
     private IEnumerator PublishPalmPoseWorldDiagLoop()
@@ -545,68 +703,6 @@ public class handPosePublisher : MonoBehaviour
         };
     }
 
-    private void EnsurePublisher()
-    {
-        if (!Application.isPlaying) return;
-
-        EnsurePalmPoseWorldTopicName();
-        ros ??= ROSConnection.GetOrCreateInstance();
-        rosReady = ros != null;
-        if (!rosReady) return;
-
-        if (!RosTopicProvider.TryResolveTopic(RosInputTopicKey.PalmPose, topicName, out resolvedTopicName, out _)
-            || !RosTopicProvider.TryResolveTopic(RosInputTopicKey.PalmPoseHmdRelative, hmdRelativeTopicName, out resolvedHmdRelativeTopicName, out _)
-            || !RosTopicProvider.TryResolveTopic(RosInputTopicKey.PalmPoseWorld, PalmPoseWorldTopic, out resolvedWorldTopicName, out _))
-        {
-            registered = false;
-            hmdRelativeRegistered = false;
-            worldRegistered = false;
-            return;
-        }
-
-        if (registeredTopic != resolvedTopicName)
-        {
-            ros.RegisterPublisher<RosMessageTypes.Geometry.PoseStampedMsg>(resolvedTopicName);
-            registeredTopic = resolvedTopicName;
-            registered = true;
-            Debug.Log("[handPosePublisher] RegisterPublisher " + resolvedTopicName);
-        }
-        else
-        {
-            registered = true;
-        }
-
-        if (!string.IsNullOrWhiteSpace(resolvedHmdRelativeTopicName) && registeredHmdRelativeTopic != resolvedHmdRelativeTopicName)
-        {
-            ros.RegisterPublisher<RosMessageTypes.Geometry.PoseStampedMsg>(resolvedHmdRelativeTopicName);
-            registeredHmdRelativeTopic = resolvedHmdRelativeTopicName;
-            hmdRelativeRegistered = true;
-            Debug.Log("[handPosePublisher] RegisterPublisher " + resolvedHmdRelativeTopicName);
-        }
-        else if (!string.IsNullOrWhiteSpace(resolvedHmdRelativeTopicName))
-        {
-            hmdRelativeRegistered = true;
-        }
-
-        if (registeredWorldTopic != resolvedWorldTopicName)
-        {
-            ros.RegisterPublisher<RosMessageTypes.Geometry.PoseStampedMsg>(resolvedWorldTopicName);
-            registeredWorldTopic = resolvedWorldTopicName;
-            worldRegistered = true;
-            Debug.Log("[PalmPoseWorld] publisher registered: " + resolvedWorldTopicName);
-        }
-        else
-        {
-            worldRegistered = true;
-        }
-
-        if (registeredPalmPoseWorldDiagTopic != PalmPoseWorldDiagTopic)
-        {
-            ros.RegisterPublisher<RosMessageTypes.Geometry.PoseStampedMsg>(PalmPoseWorldDiagTopic);
-            registeredPalmPoseWorldDiagTopic = PalmPoseWorldDiagTopic;
-            Debug.Log("[PalmPoseWorldDiag] publisher registered: " + PalmPoseWorldDiagTopic);
-        }
-    }
 
     private void PublishHandPose()
     {
@@ -772,49 +868,93 @@ public class handPosePublisher : MonoBehaviour
 
         LogPalmPoseWorldHeartbeat(palmWorldPosition);
     }
-
     private void PublishPalmPoseWorldDiag()
+{
+     if (!enablePalmPoseWorldDiag)
     {
-        if (!Application.isPlaying)
-        {
-            return;
-        }
-
-        EnsurePublisher();
-        if (Time.unscaledTime < nextPalmPoseWorldDiagPublishTime)
-        {
-            return;
-        }
-
-        nextPalmPoseWorldDiagPublishTime = Time.unscaledTime + (1f / Mathf.Max(1f, diagnosticPublishRateHz));
-        if (ros == null)
-        {
-            return;
-        }
-
-        if (palmPoseWorldDiagMessage == null)
-        {
-            InitializeMessage();
-        }
-
-        palmPoseWorldDiagMessage.header.stamp = GetRosTime();
-        palmPoseWorldDiagMessage.header.frame_id = PalmPoseWorldDiagFrameId;
-        palmPoseWorldDiagMessage.pose.position.x = publishHandPoseCalled ? 1.0 : 0.0;
-        palmPoseWorldDiagMessage.pose.position.y = publishWorldPoseCalled ? 1.0 : 0.0;
-        palmPoseWorldDiagMessage.pose.position.z = isLeftPalmTracked ? 1.0 : 0.0;
-        palmPoseWorldDiagMessage.pose.orientation.x = recalibrationRequired ? 1.0 : 0.0;
-        palmPoseWorldDiagMessage.pose.orientation.y = isActiveAndEnabled ? 1.0 : 0.0;
-        palmPoseWorldDiagMessage.pose.orientation.z = ros != null ? 1.0 : 0.0;
-        palmPoseWorldDiagMessage.pose.orientation.w = worldPosePublishCount;
-
-        if (!CanPublishLeftPalmPose(PalmPoseWorldDiagTopic))
-        {
-            return;
-        }
-
-        ros.Publish(PalmPoseWorldDiagTopic, palmPoseWorldDiagMessage);
-        palmPoseWorldDiagPublishCount++;
+        return;
     }
+
+    if (!Application.isPlaying)
+    {
+        return;
+    }
+
+    if (!Application.isPlaying)
+    {
+        return;
+    }
+
+    // ROSConnection取得とPublisher登録を先に試みる
+    EnsurePublisher();
+
+    if (ros == null)
+    {
+        return;
+    }
+
+    // 指定レートを超えないように制限
+    if (Time.unscaledTime < nextPalmPoseWorldDiagPublishTime)
+    {
+        return;
+    }
+
+    nextPalmPoseWorldDiagPublishTime =
+        Time.unscaledTime
+        + (1f / Mathf.Max(1f, diagnosticPublishRateHz));
+
+    // メッセージが未生成の場合は初期化
+    if (palmPoseWorldDiagMessage == null)
+    {
+        InitializeMessage();
+    }
+
+    // Publisher登録が完了していない場合は送信しない
+    if (registeredPalmPoseWorldDiagTopic != PalmPoseWorldDiagTopic)
+    {
+        Debug.LogError(
+            "[PalmPoseWorldDiag] Publish skipped because publisher is not registered: "
+            + PalmPoseWorldDiagTopic
+        );
+        return;
+    }
+
+    palmPoseWorldDiagMessage.header.stamp = GetRosTime();
+    palmPoseWorldDiagMessage.header.frame_id = PalmPoseWorldDiagFrameId;
+
+    palmPoseWorldDiagMessage.pose.position.x =
+        publishHandPoseCalled ? 1.0 : 0.0;
+
+    palmPoseWorldDiagMessage.pose.position.y =
+        publishWorldPoseCalled ? 1.0 : 0.0;
+
+    palmPoseWorldDiagMessage.pose.position.z =
+        isLeftPalmTracked ? 1.0 : 0.0;
+
+    palmPoseWorldDiagMessage.pose.orientation.x =
+        recalibrationRequired ? 1.0 : 0.0;
+
+    palmPoseWorldDiagMessage.pose.orientation.y =
+        isActiveAndEnabled ? 1.0 : 0.0;
+
+    palmPoseWorldDiagMessage.pose.orientation.z =
+        ros != null ? 1.0 : 0.0;
+
+    palmPoseWorldDiagMessage.pose.orientation.w =
+        worldPosePublishCount;
+
+    if (!CanPublishLeftPalmPose(PalmPoseWorldDiagTopic))
+    {
+        return;
+    }
+
+    ros.Publish(
+        PalmPoseWorldDiagTopic,
+        palmPoseWorldDiagMessage
+    );
+
+    palmPoseWorldDiagPublishCount++;
+}
 
     public bool TryGetCurrentLeftPalmWorldPosition(out Vector3 palmWorldPosition)
     {
