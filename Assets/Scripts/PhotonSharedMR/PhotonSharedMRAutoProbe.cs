@@ -34,6 +34,13 @@ public class PhotonSharedMRAutoProbe : MonoBehaviour
     private int quitExitCode;
     private bool sessionStartRequested;
     private bool spawnRequested;
+    private bool p102Validation;
+    private string p102Script = "none";
+    private float p102NextActionTime;
+    private int p102ActionIndex;
+    private int p102LastLoggedSequence = int.MinValue;
+    private int p102LastLoggedPlayers = -1;
+    private float p102LastSnapshotTime = -5f;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void CreateFromCommandLine()
@@ -57,6 +64,8 @@ public class PhotonSharedMRAutoProbe : MonoBehaviour
         probe.requireRemote = HasArg(args, "-sharePhotonProbeRequireRemote");
         probe.grabBottle = HasArg(args, "-sharePhotonProbeGrab");
         probe.durationSeconds = Mathf.Max(10f, GetArgFloat(args, "-sharePhotonProbeDuration", DefaultDurationSeconds));
+        probe.p102Validation = HasArg(args, "-p102Validation");
+        probe.p102Script = GetArgValue(args, "-p102Script", "none");
         probe.startTime = Time.realtimeSinceStartup;
 
         Debug.Log("[PhotonSharedMRAutoProbe] START label=" + probe.probeLabel
@@ -68,7 +77,9 @@ public class PhotonSharedMRAutoProbe : MonoBehaviour
             + " role=" + probe.probeRole
             + " deviceType=" + probe.probeDeviceType
             + " robotTarget=" + probe.probeRobotTarget
-            + " hostLike=" + probe.probeIsHostLikeUser);
+            + " hostLike=" + probe.probeIsHostLikeUser
+            + " p102Validation=" + probe.p102Validation
+            + " p102Script=" + probe.p102Script);
     }
 
     private void Update()
@@ -142,6 +153,13 @@ public class PhotonSharedMRAutoProbe : MonoBehaviour
         bool localAvatar = NetworkUserAvatar.Local != null;
         bool remoteAvatar = avatars.Length >= 2 || activePlayers >= 2;
 
+#if FUSION_WEAVER && FUSION2
+        if (p102Validation && runnerRunning)
+        {
+            UpdateP102Validation(runner, activePlayers);
+        }
+#endif
+
         if (runnerRunning && localAvatar && bottleSpawner != null && !spawnRequested
             && (!requireRemote || probeIsHostLikeUser))
         {
@@ -209,6 +227,11 @@ public class PhotonSharedMRAutoProbe : MonoBehaviour
             && photonSharedBottle != null
             && (!requireRemote || remoteAvatar)
             && (!grabBottle || grabStatusLogged);
+
+        if (p102Validation)
+        {
+            return;
+        }
 
         if (pass)
         {
@@ -289,6 +312,91 @@ public class PhotonSharedMRAutoProbe : MonoBehaviour
     }
 
 #if FUSION_WEAVER && FUSION2
+    private void UpdateP102Validation(NetworkRunner runner, int activePlayers)
+    {
+        SharedTeamControlStateNetwork control = SharedTeamControlStateNetwork.Instance;
+        bool hasControl = control != null && control.Object != null && control.Object.Id.IsValid;
+        SharedControlState state = default;
+        bool hasState = SharedTeamState.TryReadControl(out state);
+        bool changed = activePlayers != p102LastLoggedPlayers
+            || (hasState && state.sequence != p102LastLoggedSequence);
+        if (changed || Time.realtimeSinceStartup - p102LastSnapshotTime >= 5f)
+        {
+            p102LastSnapshotTime = Time.realtimeSinceStartup;
+            p102LastLoggedPlayers = activePlayers;
+            if (hasState) p102LastLoggedSequence = state.sequence;
+            NetworkUserAvatar local = NetworkUserAvatar.Local;
+            Debug.Log("[P1-02D] event=SNAPSHOT"
+                + " quest_label=" + probeLabel
+                + " player_ref=" + runner.LocalPlayer
+                + " participant_id=" + (local != null ? local.ParticipantId.ToString() : "Unassigned")
+                + " room=" + (runner.SessionInfo != null ? runner.SessionInfo.Name : "none")
+                + " master=" + (hasControl ? control.Object.StateAuthority.ToString() : "none")
+                + " local_is_master=" + runner.IsSharedModeMasterClient
+                + " state_authority=" + (hasControl ? control.Object.StateAuthority.ToString() : "none")
+                + " network_object_id=" + (hasControl ? control.Object.Id.ToString() : "Invalid")
+                + " participant_count=" + activePlayers
+                + " human_count=" + FindObjectsOfType<NetworkUserAvatar>().Length
+                + " sequence=" + (hasState ? state.sequence : -1)
+                + " shared_timestamp=" + (hasState ? state.shared_timestamp : -1)
+                + " task_phase=" + (hasState ? state.task_phase.ToString() : "Unavailable")
+                + " owner_type=" + (hasState ? state.owner_type.ToString() : "Unavailable")
+                + " owner_id=" + (hasState ? state.owner_id : -1));
+        }
+
+        if (!runner.IsSharedModeMasterClient || !hasControl || activePlayers < 2)
+        {
+            return;
+        }
+
+        if (p102NextActionTime <= 0f)
+        {
+            p102NextActionTime = Time.realtimeSinceStartup + 3f;
+        }
+        if (Time.realtimeSinceStartup < p102NextActionTime)
+        {
+            return;
+        }
+
+        bool attempted = false;
+        string action = "none";
+        if (string.Equals(p102Script, "t2t4", StringComparison.OrdinalIgnoreCase))
+        {
+            switch (p102ActionIndex)
+            {
+                case 0: action = "T2_TARGET"; attempted = control.TrySetTarget(101); break;
+                case 1: action = "T3_INDEPENDENT"; attempted = control.TrySetTaskPhase(TaskPhase.INDEPENDENT); break;
+                case 2: action = "T3_PREPARING"; attempted = control.TrySetTaskPhase(TaskPhase.PREPARING); break;
+                case 3: action = "T3_READY"; attempted = control.TrySetTaskPhase(TaskPhase.READY); break;
+                case 4: action = "T3_TRANSFER"; attempted = control.TrySetTaskPhase(TaskPhase.TRANSFER); break;
+                case 5: action = "T3_RELEASED"; attempted = control.TrySetTaskPhase(TaskPhase.RELEASED); break;
+                case 6: action = "T4_NONE"; attempted = control.TrySetOwnership(SharedControlOwnerType.None, -1); break;
+                case 7: action = "T4_NEW_AMIR"; attempted = control.TrySetOwnership(SharedControlOwnerType.Robot, 1); break;
+                case 8: action = "T4_OLD_AMIR"; attempted = control.TrySetOwnership(SharedControlOwnerType.Robot, 2); break;
+                default: return;
+            }
+        }
+        else if (string.Equals(p102Script, "migration", StringComparison.OrdinalIgnoreCase))
+        {
+            switch (p102ActionIndex)
+            {
+                case 0: action = "T7_READY"; attempted = control.TrySetTaskPhase(TaskPhase.READY); break;
+                case 1: action = "T7_NEW_AMIR"; attempted = control.TrySetOwnership(SharedControlOwnerType.Robot, 1); break;
+                default: return;
+            }
+        }
+        else
+        {
+            return;
+        }
+
+        Debug.Log("[P1-02D] event=TEST_API action=" + action
+            + " quest_label=" + probeLabel
+            + " accepted=" + attempted);
+        p102ActionIndex++;
+        p102NextActionTime = Time.realtimeSinceStartup + 2f;
+    }
+
     private static int CountActivePlayers(NetworkRunner runner)
     {
         if (runner == null || !runner.IsRunning)

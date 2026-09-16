@@ -32,6 +32,20 @@ public class DetectedBottleTrack
     public Vector3 LastLoggedPosition;
 }
 
+public readonly struct DetectedBottleTrackSnapshot
+{
+    public DetectedBottleTrackSnapshot(int trackId, Vector3 unityPosition, Quaternion unityRotation)
+    {
+        TrackId = trackId;
+        UnityPosition = unityPosition;
+        UnityRotation = unityRotation;
+    }
+
+    public int TrackId { get; }
+    public Vector3 UnityPosition { get; }
+    public Quaternion UnityRotation { get; }
+}
+
 public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
 {
     private const string DefaultTopic = "/detected_bottle_pose";
@@ -59,6 +73,8 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
     public int maxDisplayedBottles = 5;
     public int spawnDetectionCount = 2;
     public Transform palmPoseTransform;
+    [SerializeField, Tooltip("Disabled by default: candidate selection belongs to ROS.")]
+    private bool useLocalTargetDetection = false;
     [Tooltip("Deprecated: RealSense Poseからのボトル生成には使用しません。")]
     public Transform hmdTransform;
     [Tooltip("Deprecated: RealSense Poseからのボトル生成には使用しません。")]
@@ -108,6 +124,9 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
     public UnityEngine.Pose LatestDetectedBottlePose { get; private set; } =
         new UnityEngine.Pose(Vector3.zero, Quaternion.identity);
     public float LatestDetectedBottleTimestamp { get; private set; } = -1f;
+    public SharedTimestampSource LatestSourceTimestampType { get; private set; }
+        = SharedTimestampSource.Unavailable;
+    public long LatestSourceTimestamp { get; private set; }
     public bool HasValidDetectedBottle { get; private set; }
     public bool HasLatestValidBottlePose => HasValidDetectedBottle;
     public Vector3 LatestBottleUnityPosition => LatestDetectedBottlePose.position;
@@ -285,6 +304,13 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
 
     private void UpdateCandidateBottleLabel()
     {
+        if (!useLocalTargetDetection)
+        {
+            candidateBottle = null;
+            SetCandidateLabelVisible(false);
+            return;
+        }
+
         Transform resolvedHmdTransform = ResolveHmdTransform();
         if (resolvedHmdTransform == null)
         {
@@ -1477,7 +1503,8 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
         CachePoseForManualGeneration(
             rosPosition,
             GetFrameId(message.header != null ? message.header.frame_id : null),
-            "PoseStamped");
+            "PoseStamped",
+            ResolveSourceTimestamp(message.header));
     }
 
     private void ReceivePoseArrayMessage(PoseArrayMsg message)
@@ -1524,7 +1551,8 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
             latestRosBottlePositions.Add(rosPosition);
             if (!recordedPrimaryDetection)
             {
-                CachePoseForManualGeneration(rosPosition, frameId, "PoseArray[" + i + "]");
+                CachePoseForManualGeneration(rosPosition, frameId, "PoseArray[" + i + "]",
+                    ResolveSourceTimestamp(message.header));
             }
 
             Vector3 unityPosition = ConvertRosToBottleWorldPosition(rosPosition, frameId);
@@ -1673,10 +1701,47 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
         return true;
     }
 
+    public bool TryGetLatestDetectedBottleTracks(
+        out IReadOnlyList<DetectedBottleTrackSnapshot> tracks,
+        out string failureReason)
+    {
+        tracks = new DetectedBottleTrackSnapshot[0];
+        if (!TryGetLatestBottleWorldPoses(out _, out failureReason))
+        {
+            return false;
+        }
+
+        if (!hasLatestBottleSnapshot || latestBottleSnapshot.Count == 0)
+        {
+            failureReason = "BottleSnapshotNotReceived";
+            return false;
+        }
+
+        currentFrameAssignedTrackIds.Clear();
+        List<DetectedBottleTrackSnapshot> snapshots =
+            new List<DetectedBottleTrackSnapshot>(latestBottleSnapshot.Count);
+        for (int i = 0; i < latestBottleSnapshot.Count; i++)
+        {
+            UnityEngine.Pose pose = latestBottleSnapshot[i];
+            DetectedBottleTrack track =
+                AssociateOrCreateTrack(pose.position, pose.rotation, out _);
+            snapshots.Add(new DetectedBottleTrackSnapshot(
+                track.TrackId,
+                track.UnityPosition,
+                track.UnityRotation));
+        }
+
+        snapshots.Sort((a, b) => a.TrackId.CompareTo(b.TrackId));
+        tracks = snapshots;
+        failureReason = "Accepted";
+        return true;
+    }
+
     private void CachePoseForManualGeneration(
         Vector3 rosPosition,
         string frameId,
-        string source)
+        string source,
+        SourceTimestamp sourceTimestamp)
     {
         if (!IsFinite(rosPosition))
         {
@@ -1688,6 +1753,8 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
         latestRosPosition = rosPosition;
         hasLatestPose = true;
         latestPoseReceivedTime = Time.realtimeSinceStartupAsDouble;
+        LatestSourceTimestampType = sourceTimestamp.type;
+        LatestSourceTimestamp = sourceTimestamp.value;
         latestRosPoseFrameId = GetFrameId(frameId);
         LatestDetectedBottleTimestamp = (float)latestPoseReceivedTime;
         LatestDetectionSourceFrame = latestRosPoseFrameId;
@@ -1700,6 +1767,30 @@ public class DetectedBottlePoseSubscriber : RosTcpSubscriber<PoseStampedMsg>
             + " sourceFrame=" + latestRosPoseFrameId
             + " rosPosition=" + latestRosPosition.ToString("F3")
             + " receivedTime=" + latestPoseReceivedTime.ToString("F3"));
+    }
+
+    private readonly struct SourceTimestamp
+    {
+        public readonly SharedTimestampSource type;
+        public readonly long value;
+        public SourceTimestamp(SharedTimestampSource type, long value)
+        {
+            this.type = type;
+            this.value = value;
+        }
+    }
+
+    private static SourceTimestamp ResolveSourceTimestamp(RosMessageTypes.Std.HeaderMsg header)
+    {
+        if (header != null && header.stamp != null
+            && (header.stamp.sec != 0 || header.stamp.nanosec != 0))
+        {
+            long nanoseconds = checked((long)header.stamp.sec * 1000000000L + header.stamp.nanosec);
+            return new SourceTimestamp(SharedTimestampSource.RosHeader, nanoseconds);
+        }
+
+        long receiveNanoseconds = (long)(Time.realtimeSinceStartupAsDouble * 1000000000.0);
+        return new SourceTimestamp(SharedTimestampSource.ReceiveTime, receiveNanoseconds);
     }
 
     private void UpdateBottleInstance(int index, PoseMsg pose, string frameId)

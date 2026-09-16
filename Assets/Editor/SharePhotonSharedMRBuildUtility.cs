@@ -9,6 +9,27 @@ public static class SharePhotonSharedMRBuildUtility
     private const string MainScenePath = "Assets/Scenes/main.unity";
     private const string BuildFolder = "Builds/PhotonSharedMR";
     private const string BuildPath = BuildFolder + "/SHAREPhotonSharedMR.exe";
+    private const string AndroidBuildPath = BuildFolder + "/SHAREPhotonSharedMR.apk";
+
+    public static void BuildAndroidDevelopmentPlayer()
+    {
+        PrepareBuildFolder();
+        EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.Android, BuildTarget.Android);
+        EditorSceneManager.OpenScene(MainScenePath, OpenSceneMode.Single);
+        BuildReport report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
+        {
+            scenes = new[] { MainScenePath },
+            locationPathName = AndroidBuildPath,
+            target = BuildTarget.Android,
+            options = BuildOptions.Development
+        });
+
+        BuildSummary summary = report.summary;
+        Debug.Log("[SharePhotonSharedMRBuildUtility] Android build result=" + summary.result
+            + " output=" + summary.outputPath + " sizeBytes=" + summary.totalSize
+            + " errors=" + summary.totalErrors + " warnings=" + summary.totalWarnings);
+        EditorApplication.Exit(summary.result == BuildResult.Succeeded && summary.totalErrors == 0 ? 0 : 1);
+    }
 
     public static void BuildWindowsSmokePlayer()
     {

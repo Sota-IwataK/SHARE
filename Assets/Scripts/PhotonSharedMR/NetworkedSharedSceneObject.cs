@@ -101,6 +101,10 @@ public class NetworkedSharedSceneObject :
     [Networked] public int NetworkDetectionVisualState { get; set; }
     [Networked] public int DetectedBottleTrackId { get; set; }
     [Networked] public int NetworkBottleOrigin { get; set; }
+    [Networked] public int TelemetryTimestampTypeValue { get; set; }
+    [Networked] public long TelemetrySourceTimestampValue { get; set; }
+    [Networked] public long TelemetrySharedTimestampValue { get; set; }
+    [Networked] public int TelemetrySequenceValue { get; set; }
 
     public string DebugSpawnedByPlayer => SpawnedByPlayer.ToString();
     public string DebugSpawnedAtRunnerTime => SpawnedAtRunnerTime.ToString("F3");
@@ -110,6 +114,22 @@ public class NetworkedSharedSceneObject :
     public SharedBottleOrigin SharedOrigin => ClampBottleOrigin(NetworkBottleOrigin);
     public PhotonSharedBottleDetectionVisualState DetectionVisualState
         => ClampDetectionVisualState(NetworkDetectionVisualState);
+    public SharedTimestampSource SharedSourceTimestampType
+        => (SharedTimestampSource)TelemetryTimestampTypeValue;
+    public long SharedSourceTimestamp => TelemetrySourceTimestampValue;
+    public long SharedTelemetryTimestamp => TelemetrySharedTimestampValue;
+    public int SharedTelemetrySequence => TelemetrySequenceValue;
+
+    public bool TryRecordTelemetryTimestamp(SharedTimestampSource sourceType, long sourceTimestamp)
+    {
+        if (!HasStateAuthority || sourceType == SharedTimestampSource.Unavailable || Runner == null)
+            return false;
+        TelemetryTimestampTypeValue = (int)sourceType;
+        TelemetrySourceTimestampValue = sourceTimestamp;
+        TelemetrySharedTimestampValue = (long)(Runner.SimulationTime * 1000.0);
+        TelemetrySequenceValue = TelemetrySequenceValue == int.MaxValue ? 1 : TelemetrySequenceValue + 1;
+        return true;
+    }
 
     public bool IsLockedByOther
     {
@@ -851,6 +871,11 @@ public class NetworkedSharedSceneObject :
     public bool HasLocalStateAuthority => false;
     public int SharedDetectedBottleTrackId => detectedBottleTrackId;
     public SharedBottleOrigin SharedOrigin => bottleOrigin;
+    public SharedTimestampSource SharedSourceTimestampType => SharedTimestampSource.Unavailable;
+    public long SharedSourceTimestamp => 0L;
+    public long SharedTelemetryTimestamp => 0L;
+    public int SharedTelemetrySequence => 0;
+    public bool TryRecordTelemetryTimestamp(SharedTimestampSource sourceType, long sourceTimestamp) => false;
     private PhotonSharedBottleDetectionVisualState localDetectionVisualState = PhotonSharedBottleDetectionVisualState.None;
     public PhotonSharedBottleDetectionVisualState DetectionVisualState => localDetectionVisualState;
 

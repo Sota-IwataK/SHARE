@@ -181,8 +181,8 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
             return false;
         }
 
-        if (!detectedBottleSubscriber.TryGetLatestBottleWorldPoses(
-            out IReadOnlyList<Vector3> detectedPositions,
+        if (!detectedBottleSubscriber.TryGetLatestDetectedBottleTracks(
+            out IReadOnlyList<DetectedBottleTrackSnapshot> detectedTracks,
             out string poseFailureReason))
         {
             Debug.LogWarning("[PhotonSharedBottleSpawner] Latest detection pose rejected"
@@ -190,7 +190,7 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
             return false;
         }
 
-        int validCount = detectedPositions.Count;
+        int validCount = detectedTracks.Count;
         int targetCount = Mathf.Min(validCount, Mathf.Max(1, maxSharedBottleCount));
         if (validCount > targetCount)
         {
@@ -213,10 +213,25 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
         }
 
         List<NetworkedSharedSceneObject> rosDetectedBottles = CollectRosDetectedBottles();
+        HashSet<int> activeTrackIds = new HashSet<int>();
+        for (int i = 0; i < targetCount; i++)
+        {
+            activeTrackIds.Add(detectedTracks[i].TrackId);
+        }
+
         int currentCount = rosDetectedBottles.Count;
-        int updateCount = Mathf.Min(currentCount, targetCount);
-        int spawnCount = Mathf.Max(0, targetCount - currentCount);
-        int despawnCount = Mathf.Max(0, currentCount - targetCount);
+        int matchedCount = 0;
+        for (int i = 0; i < rosDetectedBottles.Count; i++)
+        {
+            if (activeTrackIds.Contains(rosDetectedBottles[i].SharedDetectedBottleTrackId))
+            {
+                matchedCount++;
+            }
+        }
+
+        int spawnCount = Mathf.Max(0, targetCount - matchedCount);
+        int updateCount = matchedCount;
+        int despawnCount = Mathf.Max(0, currentCount - matchedCount);
         Debug.Log("[PhotonSharedBottleSpawner] Detection synchronization"
             + " current=" + currentCount
             + " target=" + targetCount
@@ -224,12 +239,17 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
             + " update=" + updateCount
             + " despawn=" + despawnCount);
 
-        for (int i = 0; i < updateCount; i++)
+        for (int i = rosDetectedBottles.Count - 1; i >= 0; i--)
         {
             NetworkedSharedSceneObject bottle = rosDetectedBottles[i];
+            if (activeTrackIds.Contains(bottle.SharedDetectedBottleTrackId))
+            {
+                continue;
+            }
+
             if (bottle.IsGrabbedByAnyUser)
             {
-                Debug.Log("[PhotonSharedBottleSpawner] Shared detected bottle update deferred"
+                Debug.Log("[PhotonSharedBottleSpawner] Despawn deferred"
                     + " networkId=" + FormatNetworkId(bottle.Object)
                     + " reason=Grabbed");
                 continue;
@@ -238,71 +258,34 @@ public class PhotonSharedBottleSpawner : MonoBehaviour
             if (!bottle.HasLocalStateAuthority)
             {
                 bottle.Object.RequestStateAuthority();
-                Debug.Log("[PhotonSharedBottleSpawner] Shared detected bottle update deferred"
+                Debug.Log("[PhotonSharedBottleSpawner] Despawn deferred"
                     + " networkId=" + FormatNetworkId(bottle.Object)
                     + " reason=StateAuthorityRequested");
                 continue;
             }
 
-            if (bottle.TryApplyAuthorityPose(
-                detectedPositions[i],
-                Quaternion.identity,
-                "ManualDetectionSync",
-                true))
-            {
-                Debug.Log("[PhotonSharedBottleSpawner] Shared detected bottle updated"
-                    + " detectionIndex=" + i
-                    + " networkId=" + FormatNetworkId(bottle.Object));
-            }
-        }
-
-        for (int i = currentCount; i < targetCount; i++)
-        {
-            Debug.Log("[PhotonSharedBottleSpawner] Calling Runner.Spawn"
-                + " detectionIndex=" + i
-                + " position=" + FormatVector(detectedPositions[i])
-                + " rotation=" + FormatQuaternion(Quaternion.identity));
-            NetworkedSharedSceneObject spawned = RequestSpawnInternal(
-                detectedPositions[i],
-                Quaternion.identity,
-                "PoseArrayDetection:" + i,
-                -1,
-                SharedBottleOrigin.RosDetected);
-            if (spawned != null)
-            {
-                Debug.Log("[PhotonSharedBottleSpawner] Shared detected bottle spawned"
-                    + " detectionIndex=" + i
-                    + " networkId=" + FormatNetworkId(spawned.Object));
-            }
-        }
-
-        for (int i = currentCount - 1; i >= targetCount; i--)
-        {
-            NetworkedSharedSceneObject bottle = rosDetectedBottles[i];
             string networkId = FormatNetworkId(bottle.Object);
-            if (bottle.IsGrabbedByAnyUser)
-            {
-                Debug.Log("[PhotonSharedBottleSpawner] Despawn deferred"
-                    + " networkId=" + networkId
-                    + " reason=Grabbed");
-                continue;
-            }
-
-            if (!bottle.HasLocalStateAuthority)
-            {
-                bottle.Object.RequestStateAuthority();
-                Debug.Log("[PhotonSharedBottleSpawner] Despawn deferred"
-                    + " networkId=" + networkId
-                    + " reason=StateAuthorityRequested");
-                continue;
-            }
-
+            int removedTrackId = bottle.SharedDetectedBottleTrackId;
             DespawnNetworkBottle(runner, bottle.Object);
             Debug.Log("[PhotonSharedBottleSpawner] Shared detected bottle despawned"
-                + " networkId=" + networkId);
+                + " networkId=" + networkId
+                + " trackId=" + removedTrackId);
         }
 
-        return true;
+        bool synchronized = targetCount == 0;
+        for (int i = 0; i < targetCount; i++)
+        {
+            DetectedBottleTrackSnapshot track = detectedTracks[i];
+            bool updated = TrySpawnOrUpdateDetectedBottle(
+                track.TrackId,
+                track.UnityPosition,
+                track.UnityRotation,
+                false,
+                false);
+            synchronized |= updated || HasDetectedBottleTrack(track.TrackId);
+        }
+
+        return synchronized;
 #else
         return false;
 #endif

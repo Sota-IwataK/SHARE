@@ -10826,6 +10826,106 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 255380079}
   m_Mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!1 &257910919
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 257910922}
+  - component: {fileID: 257910921}
+  - component: {fileID: 257910920}
+  - component: {fileID: 257910923}
+  - component: {fileID: 257910924}
+  m_Layer: 0
+  m_Name: SharedTeamStateSceneObject
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &257910920
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 257910919}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c6324e39a1ef4494b249293996bf28cf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  enableEventLogs: 1
+  _TargetIdValue: 0
+  _OwnerTypeValue: 0
+  _OwnerIdValue: 0
+  _TaskPhaseValue: 0
+  _SequenceValue: 0
+  _SharedTimestampValue: 0
+--- !u!114 &257910921
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 257910919}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: -1552182283, guid: e725a070cec140c4caffb81624c8c787, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  SortKey: 2518036088
+  ObjectInterest: 1
+  Flags: 131073
+  NestedObjects: []
+  NetworkedBehaviours:
+  - {fileID: 257910920}
+  - {fileID: 257910923}
+  ForceRemoteRenderTimeframe: 0
+--- !u!4 &257910922
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 257910919}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &257910923
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 257910919}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7702d7f8d1e8bcc4684d3078e5ab9226, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  staleAfterSeconds: 1
+  enableAuditLogs: 1
+--- !u!114 &257910924
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 257910919}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 97a99d26ee8a7494db4b86d0bb6ab137, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!1 &259715463
 GameObject:
   m_ObjectHideFlags: 0
@@ -13543,7 +13643,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2075928478}
+  - {fileID: 457653850}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -18810,6 +18910,34 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 449911759}
   m_Mesh: {fileID: 8597400676033422076, guid: 817117ab22c8d33418218d97ff6c9774, type: 3}
+--- !u!21 &457653850
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: Unlit/VertexColor
+  m_Shader: {fileID: 4800000, guid: d2fafd88cf56225449a274844451c981, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_LockedProperties: 
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs: []
+    m_Ints: []
+    m_Floats: []
+    m_Colors:
+    - _Color: {r: 1, g: 1, b: 1, a: 1}
+  m_BuildTextureStacks: []
 --- !u!1 &458030559
 GameObject:
   m_ObjectHideFlags: 0
@@ -22415,6 +22543,8 @@ MonoBehaviour:
   publishStartCountdownPrefab: {fileID: 0}
   countdownDistanceFromHmdM: 0.6
   countdownLocalOffset: {x: 0, y: -0.12, z: 0}
+  useSharedPhotonRouting: 0
+  enablePalmPoseWorldDiag: 0
   handTracking: {fileID: 556539728}
   publishCount: 0
   hmdRelativePublishCount: 0
@@ -22778,6 +22908,7 @@ MonoBehaviour:
   TimeStep: 0
   EnsureThreadSafety: 0
   bottle_id: -2
+  noTargetId: -1
 --- !u!114 &555286895
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -37011,6 +37142,10 @@ MonoBehaviour:
   _NetworkDetectionVisualState: 0
   _DetectedBottleTrackId: 0
   _NetworkBottleOrigin: 0
+  _TelemetryTimestampTypeValue: 0
+  _TelemetrySourceTimestampValue: 0
+  _TelemetrySharedTimestampValue: 0
+  _TelemetrySequenceValue: 0
 --- !u!136 &926059484
 CapsuleCollider:
   m_ObjectHideFlags: 0
@@ -38563,6 +38698,7 @@ MonoBehaviour:
   maxDisplayedBottles: 5
   spawnDetectionCount: 2
   palmPoseTransform: {fileID: 0}
+  useLocalTargetDetection: 0
   hmdTransform: {fileID: 0}
   amirMrAnchor: {fileID: 0}
   latestPoseMaxAgeSec: 0.75
@@ -38607,6 +38743,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d7e4f50a36bb45fc9d3c61f7795f2cab, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  useLocalTargetDetection: 0
   hmdTransform: {fileID: 0}
   leftHandTransform: {fileID: 0}
   leftHandDirectionAxis: 0
@@ -39847,6 +39984,10 @@ MonoBehaviour:
   _NetworkDetectionVisualState: 0
   _DetectedBottleTrackId: 0
   _NetworkBottleOrigin: 0
+  _TelemetryTimestampTypeValue: 0
+  _TelemetrySourceTimestampValue: 0
+  _TelemetrySharedTimestampValue: 0
+  _TelemetrySequenceValue: 0
 --- !u!65 &1024490471
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -43263,6 +43404,10 @@ MonoBehaviour:
   _NetworkDetectionVisualState: 0
   _DetectedBottleTrackId: 0
   _NetworkBottleOrigin: 0
+  _TelemetryTimestampTypeValue: 0
+  _TelemetrySourceTimestampValue: 0
+  _TelemetrySharedTimestampValue: 0
+  _TelemetrySequenceValue: 0
 --- !u!65 &1113942951
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -54961,11 +55106,6 @@ GameObject:
 --- !u!4 &1455497434 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 3959285036668390294, guid: 390bf4c6c1d73984297af5b3eee33a38, type: 3}
-  m_PrefabInstance: {fileID: 555887933}
-  m_PrefabAsset: {fileID: 0}
---- !u!4 &2100000010 stripped
-Transform:
-  m_CorrespondingSourceObject: {fileID: 900000000000000001, guid: 390bf4c6c1d73984297af5b3eee33a38, type: 3}
   m_PrefabInstance: {fileID: 555887933}
   m_PrefabAsset: {fileID: 0}
 --- !u!1 &1460367780
@@ -73574,34 +73714,6 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2074288607}
   m_Mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
---- !u!21 &2075928478
-Material:
-  serializedVersion: 8
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_Name: Unlit/VertexColor
-  m_Shader: {fileID: 4800000, guid: d2fafd88cf56225449a274844451c981, type: 3}
-  m_Parent: {fileID: 0}
-  m_ModifiedSerializedProperties: 0
-  m_ValidKeywords: []
-  m_InvalidKeywords: []
-  m_LightmapFlags: 4
-  m_EnableInstancingVariants: 0
-  m_DoubleSidedGI: 0
-  m_CustomRenderQueue: -1
-  stringTagMap: {}
-  disabledShaderPasses: []
-  m_LockedProperties: 
-  m_SavedProperties:
-    serializedVersion: 3
-    m_TexEnvs: []
-    m_Ints: []
-    m_Floats: []
-    m_Colors:
-    - _Color: {r: 1, g: 1, b: 1, a: 1}
-  m_BuildTextureStacks: []
 --- !u!1001 &2076951636
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -74202,6 +74314,11 @@ MonoBehaviour:
   rangeReferenceRoot: {fileID: 1455497434}
   localReachabilityVolumeRoot: {fileID: 2100000010}
   insideEpsilon: 0.001
+--- !u!4 &2100000010 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 900000000000000001, guid: 390bf4c6c1d73984297af5b3eee33a38, type: 3}
+  m_PrefabInstance: {fileID: 555887933}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &2105867408
 GameObject:
   m_ObjectHideFlags: 0
@@ -117838,3 +117955,4 @@ SceneRoots:
   - {fileID: 581394850}
   - {fileID: 1521942135}
   - {fileID: 273870641}
+  - {fileID: 257910922}

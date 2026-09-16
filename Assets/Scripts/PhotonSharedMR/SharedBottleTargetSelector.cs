@@ -26,6 +26,10 @@ public enum TransformDirectionAxis
 [DisallowMultipleComponent]
 public sealed class SharedBottleTargetSelector : MonoBehaviour
 {
+    [Header("Detection Authority")]
+    [SerializeField, Tooltip("Disabled by default: ROS /identified_bottle is the target authority.")]
+    private bool useLocalTargetDetection = false;
+
     [Header("Pose Sources")]
     [SerializeField] private Transform hmdTransform;
     [SerializeField] private Transform leftHandTransform;
@@ -81,6 +85,7 @@ public sealed class SharedBottleTargetSelector : MonoBehaviour
     private float pendingClaimStartedAt = -1f;
     private bool selectedRetainedLogged;
     private bool selectedConditionsLostLogged;
+    private bool localDetectionDisabledLogged;
 
     public NetworkedSharedSceneObject CurrentTarget => currentTarget;
     public NetworkObject CurrentTargetNetworkObject => currentTarget != null ? currentTarget.Object : null;
@@ -155,6 +160,13 @@ public sealed class SharedBottleTargetSelector : MonoBehaviour
 
     private void Update()
     {
+        if (!useLocalTargetDetection)
+        {
+            DisableLocalTargetDetectionState();
+            return;
+        }
+
+        localDetectionDisabledLogged = false;
         if (Time.unscaledTime < nextSelectionUpdate)
         {
             return;
@@ -183,6 +195,29 @@ public sealed class SharedBottleTargetSelector : MonoBehaviour
 
         HandleHandTrackingRestored();
         EvaluateSelection(handOrigin, handDirection);
+    }
+
+    private void DisableLocalTargetDetectionState()
+    {
+        if (candidate != null || currentTarget != null || pendingClaim != null)
+        {
+            CancelPendingClaim();
+            ReleaseClaim(currentTarget);
+            SetLocallySelected(currentTarget, false);
+            HideConflict(blockedBottle);
+            ClearCandidateVisual(candidate);
+            ClearSelectedVisual(currentTarget);
+            candidate = null;
+            currentTarget = null;
+            blockedBottle = null;
+            CurrentState = TargetSelectionState.None;
+        }
+
+        if (!localDetectionDisabledLogged)
+        {
+            localDetectionDisabledLogged = true;
+            Debug.Log("[SharedBottleTargetSelector] Local target detection disabled; ROS is target authority.", this);
+        }
     }
 
     private bool ResolveHmd()

@@ -170,6 +170,7 @@ public class PhotonDetectedBottleBridge : MonoBehaviour
             lastSharedWorldPosition = detectedPose.position;
             if (trackedSharedBottle != null)
             {
+                RecordTrackedBottleTimestamp();
                 LogState("PHOTON_DETECTED_BOTTLE_SHARED_SPAWN"
                     + " id=" + DetectedBottleId
                     + " position=" + FormatVector(detectedPose.position));
@@ -197,10 +198,20 @@ public class PhotonDetectedBottleBridge : MonoBehaviour
             detectedPose.rotation))
         {
             lastSharedWorldPosition = detectedPose.position;
+            RecordTrackedBottleTimestamp();
             LogPose("PHOTON_DETECTED_BOTTLE_SHARED_UPDATE"
                 + " id=" + DetectedBottleId
                 + " position=" + FormatVector(detectedPose.position));
         }
+    }
+
+    private void RecordTrackedBottleTimestamp()
+    {
+        if (trackedSharedBottle == null || detectedBottleSubscriber == null)
+            return;
+        trackedSharedBottle.TryRecordTelemetryTimestamp(
+            detectedBottleSubscriber.LatestSourceTimestampType,
+            detectedBottleSubscriber.LatestSourceTimestamp);
     }
 
     private NetworkedSharedSceneObject ResolveTrackedSharedBottle()

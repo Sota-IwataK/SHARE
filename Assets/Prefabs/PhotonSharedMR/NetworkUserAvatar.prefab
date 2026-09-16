@@ -11,6 +11,7 @@ GameObject:
   - component: {fileID: 663567464271447739}
   - component: {fileID: 2108607135266503540}
   - component: {fileID: 4192688465987929703}
+  - component: {fileID: 8189041167373152981}
   m_Layer: 0
   m_Name: NetworkUserAvatar
   m_TagString: Untagged
@@ -131,7 +132,35 @@ MonoBehaviour:
   NestedObjects: []
   NetworkedBehaviours:
   - {fileID: 2108607135266503540}
+  - {fileID: 8189041167373152981}
   ForceRemoteRenderTimeframe: 0
+--- !u!114 &8189041167373152981
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2254691046431767620}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a4d194ecb96f4a52bf37f40f841f95d2, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  poseRateHz: 8
+  localRobotId: -1
+  localRobotPoseSource: {fileID: 0}
+  sampleLocalRobotPose: 0
+  enableEventLogs: 1
+  _RobotIdValue: 0
+  _RobotPosition: {x: 0, y: 0, z: 0}
+  _RobotRotation: {x: 0, y: 0, z: 0, w: 0}
+  _GripperStateValue: 0
+  _RobotConnectedValue:
+    _value: 0
+  _RobotTimestampTypeValue: 0
+  _RobotSourceTimestampValue: 0
+  _RobotSharedTimestampValue: 0
+  _RobotSequenceValue: 0
 --- !u!1 &5979631521798078377
 GameObject:
   m_ObjectHideFlags: 0
