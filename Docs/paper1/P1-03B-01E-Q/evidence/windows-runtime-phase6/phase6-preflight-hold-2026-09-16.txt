@@ -1,0 +1,76 @@
+P1-03B-01E-Q Runtime Closure Phase 6 preflight evidence
+Date: 2026-09-16 Asia/Tokyo
+
+SCOPE
+- Phase 6 isolated ROS ingress only.
+- No robot, AMIR driver, geometry, BottleNearEE, holds_object,
+  held commit, gripper, calibration, canonical feature producer,
+  TrackId conversion, Phase 7, or Photon 2-peer action was performed.
+
+UNITY SOURCE BASELINE
+- Repository: C:\Users\23044\SHARE
+- Branch: feature/p103b-canonical-identity
+- HEAD: 15dd3c813215fd77bc866f662df2dc3c54f5b75d
+- Initial working tree: clean
+- Unity: 2022.3.62f2
+
+SCENE AND CONNECTION AUDIT
+- Assets/Scenes/main.unity contains exactly one PhotonSharedBottleSpawner.
+- main.unity contains zero serialized CanonicalBottleObservationSubscriber
+  components. CanonicalBottleObservationSubscriber creates one runtime
+  instance only when exactly one spawner exists.
+- bottleIdentityMode is not serialized in main.unity, so the code default
+  BottleIdentityMode.Legacy remains effective.
+- Runtime-only switch to Canonical was planned; no serialized default was
+  changed.
+- ROSConnection source: Assets/Resources/ROSConnectionPrefab.prefab
+- Actual configured host: 192.168.11.30
+- Actual configured port: 10000
+- ConnectOnStart: true
+- Canonical topic: /share/bottles/canonical_observation
+
+ROS ENVIRONMENT AUDIT
+- Local Windows address: 192.168.11.29/24 (Wi-Fi).
+- WSL distributions: none installed.
+- Windows ros2 command: unavailable.
+- ROS_DOMAIN_ID in current environment: unset.
+- RMW_IMPLEMENTATION in current environment: unset.
+- C:\Users\23044\shear_ws_ros and shear_ws_ros_lf are source-only clones.
+- Both ROS clones are at 48336aeb2185cd321fe99e59d06050f179352c9d
+  and match their only remote branch, origin/main.
+- Neither clone contains install/, build/, a ROS2 runtime, or
+  CanonicalBottleObservation.msg.
+- The remote ROS repository has no canonical-message branch or file.
+- Endpoint launch source requests ROS_IP=0.0.0.0 and ROS_TCP_PORT=10000.
+- Actual endpoint-side ROS_DOMAIN_ID and RMW could not be read because the
+  configured endpoint host was unavailable.
+
+NETWORK EVIDENCE
+- 192.168.11.30 ICMP: timeout (100% loss).
+- 192.168.11.30 TCP/22: timeout.
+- 192.168.11.30 TCP/10000: timeout.
+- No alternate host or port was guessed or substituted.
+
+STOP DECISION
+- ROS-TCP Endpoint could not be started or reached.
+- ros2 interface show could not be executed because no ROS2 runtime or
+  built share_semantic_interfaces package is available locally.
+- No actual ROS2 CanonicalBottleObservation publisher could be executed.
+- Unity Play Mode was not entered because the Phase 6-1 prerequisite
+  (Endpoint running and reachable) was not satisfied.
+- No five-message sequence was published, and no disposition is claimed.
+- Result: Phase 6 HOLD at Phase 6-0 / Phase 6-1 boundary.
+
+DIAGNOSTIC LOG AUDIT
+- AcceptedNew and AcceptedUpdate are logged when logAcceptedObservations is on.
+- ConflictingDuplicateRejected and OlderRejected are warning-logged with the
+  reason and observation tuple.
+- DuplicateIgnored is intentionally suppressed by the current subscriber log.
+  If runtime state cannot independently prove receipt and no sink update when
+  the environment becomes available, a semantic-neutral diagnostic log will
+  be required before claiming the exact-duplicate condition.
+
+CHANGES
+- No runtime or behavior code changed.
+- This evidence file is the only repository change from this attempt.
+- Compile/NUnit were not rerun because no code or serialized asset changed.

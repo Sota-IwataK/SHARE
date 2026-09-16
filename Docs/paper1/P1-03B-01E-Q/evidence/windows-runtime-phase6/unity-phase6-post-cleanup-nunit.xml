@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="16" result="Passed" total="16" passed="16" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-16 08:10:43Z" end-time="2026-09-16 08:10:43Z" duration="0.0483608">
+  <test-suite type="TestSuite" id="1000" name="MRTKv3-IRT-MRO" fullname="MRTKv3-IRT-MRO" runstate="Runnable" testcasecount="32" result="Passed" start-time="2026-09-16 08:10:43Z" end-time="2026-09-16 08:10:43Z" duration="0.048361" total="16" passed="16" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <test-suite type="Assembly" id="1038" name="Assembly-CSharp-Editor.dll" fullname="C:/Users/23044/SHARE/Library/ScriptAssemblies/Assembly-CSharp-Editor.dll" runstate="Runnable" testcasecount="32" result="Passed" start-time="2026-09-16 08:10:43Z" end-time="2026-09-16 08:10:43Z" duration="0.044710" total="16" passed="16" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="21008" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <test-suite type="TestFixture" id="1001" name="CanonicalBottleIdentityTransportTests" fullname="CanonicalBottleIdentityTransportTests" classname="CanonicalBottleIdentityTransportTests" runstate="Runnable" testcasecount="16" result="Passed" start-time="2026-09-16 08:10:43Z" end-time="2026-09-16 08:10:43Z" duration="0.041501" total="16" passed="16" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-case id="1013" name="BindingPreservesLifecycleAndExactMetadata" fullname="CanonicalBottleIdentityTransportTests.BindingPreservesLifecycleAndExactMetadata" methodname="BindingPreservesLifecycleAndExactMetadata" classname="CanonicalBottleIdentityTransportTests" runstate="Runnable" seed="1576466405" result="Passed" start-time="2026-09-16 08:10:43Z" end-time="2026-09-16 08:10:43Z" duration="0.013664" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+        </test-case>
+        <test-case id="1017" name="DefaultModeIsLegacyAndCanonicalSinkRejectsItWithoutFallback" fullname="CanonicalBottleIdentityTransportTests.DefaultModeIsLegacyAndCanonicalSinkRejectsItWithoutFallback" methodname="DefaultModeIsLegacyAndCanonicalSinkRejectsItWithoutFallback" classname="CanonicalBottleIdentityTransportTests" runstate="Runnable" seed="565234114" result="Passed" start-time="2026-09-16 08:10:43Z" end-time="2026-09-16 08:10:43Z" duration="0.007026" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+          <output><![CDATA[[PhotonSharedBottleSpawner] Sync detected bottles requested
+[PhotonSharedBottleSpawner] Legacy TrackId synchronization rejected in Canonical mode.
+[PhotonSharedBottleSpawner] Ignored ROS pose:
+trackId=42
+reason=CanonicalModeNoTrackIdFallback
+]]></output>
+        </test-case>
+        <test-case id="1012" name="DirectBindingUsesFullKeyAndRejectsSecondGameObject" fullname="CanonicalBottleIdentityTransportTests.DirectBindingUsesFullKeyAndRejectsSecondGameObject" methodname="DirectBindingUsesFullKeyAndRejectsSecondGameObject" classname="CanonicalBottleIdentityTransportTests" runstate="Runnable" seed="16249352" result="Passed" start-time="2026-09-16 08:10:43Z" end-time="2026-09-16 08:10:43Z" duration="0.000595" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+        </test-case>
+        <test-case id="1005" name="FullKeyIncludesSourceSessionAndObjectWithoutParticipantOrTrackId" fullname="CanonicalBottleIdentityTransportTests.FullKeyIncludesSourceSessionAndObjectWithoutParticipantOrTrackId" methodname="FullKeyIncludesSourceSessionAndObjectWithoutParticipantOrTrackId" classname="CanonicalBottleIdentityTransportTests" runstate="Runnable" seed="833727951" result="Passed" start-time="2026-09-16 08:10:43Z" end-time="2026-09-16 08:10:43Z" duration="0.002605" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+        </test-case>
+        <test-case id="1002" name="GeneratedMessageUsesExpectedRosNameAndUint64Types" fullname="CanonicalBottleIdentityTransportTests.GeneratedMessageUsesExpectedRosNameAndUint64Types" methodname="GeneratedMessageUsesExpectedRosNameAndUint64Types" classname="CanonicalBottleIdentityTransportTests" runstate="Runnable" seed="1024536163" result="Passed" start-time="2026-09-16 08:10:43Z" end-time="2026-09-16 08:10:43Z" duration="0.000149" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+        </test-case>
+        <test-case id="1003" name="GeneratedMessageUsesRos2TimeTypes" fullname="CanonicalBottleIdentityTransportTests.GeneratedMessageUsesRos2TimeTypes" methodname="GeneratedMessageUsesRos2TimeTypes" classname="CanonicalBottleIdentityTransportTests" runstate="Runnable" seed="1676535595" result="Passed" start-time="2026-09-16 08:10:43Z" end-time="2026-09-16 08:10:43Z" duration="0.000142" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+        </test-case>
+        <test-case id="1010" name="LedgerScopesOrderingByFullKeyAndRejectsConflicts" fullname="CanonicalBottleIdentityTransportTests.LedgerScopesOrderingByFullKeyAndRejectsConflicts" methodname="LedgerScopesOrderingByFullKeyAndRejectsConflicts" classname="CanonicalBottleIdentityTransportTests" runstate="Runnable" seed="900759781" result="Passed" start-time="2026-09-16 08:10:43Z" end-time="2026-09-16 08:10:43Z" duration="0.001202" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+        </test-case>
+        <test-case id="1007" name="MapperPreservesFullTupleSequenceStampClockAndFrame" fullname="CanonicalBottleIdentityTransportTests.MapperPreservesFullTupleSequenceStampClockAndFrame" methodname="MapperPreservesFullTupleSequenceStampClockAndFrame" classname="CanonicalBottleIdentityTransportTests" runstate="Runnable" seed="745267153" result="Passed" start-time="2026-09-16 08:10:43Z" end-time="2026-09-16 08:10:43Z" duration="0.000443" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+        </test-case>
+        <test-case id="1009" name="MapperRejectsUnknownLifecycleInvalidTimeAndInvalidFrame" fullname="CanonicalBottleIdentityTransportTests.MapperRejectsUnknownLifecycleInvalidTimeAndInvalidFrame" methodname="MapperRejectsUnknownLifecycleInvalidTimeAndInvalidFrame" classname="CanonicalBottleIdentityTransportTests" runstate="Runnable" seed="1532329941" result="Passed" start-time="2026-09-16 08:10:43Z" end-time="2026-09-16 08:10:43Z" duration="0.000386" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+        </test-case>
+        <test-case id="1016" name="PhotonCapacityOverflowAndMalformedUnicodeAreRejectedWithoutTruncation" fullname="CanonicalBottleIdentityTransportTests.PhotonCapacityOverflowAndMalformedUnicodeAreRejectedWithoutTruncation" methodname="PhotonCapacityOverflowAndMalformedUnicodeAreRejectedWithoutTruncation" classname="CanonicalBottleIdentityTransportTests" runstate="Runnable" seed="1079598144" result="Passed" start-time="2026-09-16 08:10:43Z" end-time="2026-09-16 08:10:43Z" duration="0.000835" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+        </test-case>
+        <test-case id="1014" name="PhotonPayloadRoundTripPreservesFullTupleAndHasNoNetworkObjectIdentity" fullname="CanonicalBottleIdentityTransportTests.PhotonPayloadRoundTripPreservesFullTupleAndHasNoNetworkObjectIdentity" methodname="PhotonPayloadRoundTripPreservesFullTupleAndHasNoNetworkObjectIdentity" classname="CanonicalBottleIdentityTransportTests" runstate="Runnable" seed="1357658777" result="Passed" start-time="2026-09-16 08:10:43Z" end-time="2026-09-16 08:10:43Z" duration="0.000523" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+        </test-case>
+        <test-case id="1015" name="RespawnedGameObjectKeepsCanonicalIdentityWithoutInstanceIdPromotion" fullname="CanonicalBottleIdentityTransportTests.RespawnedGameObjectKeepsCanonicalIdentityWithoutInstanceIdPromotion" methodname="RespawnedGameObjectKeepsCanonicalIdentityWithoutInstanceIdPromotion" classname="CanonicalBottleIdentityTransportTests" runstate="Runnable" seed="39995723" result="Passed" start-time="2026-09-16 08:10:43Z" end-time="2026-09-16 08:10:43Z" duration="0.000610" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+        </test-case>
+        <test-case id="1004" name="RosCdrRoundTripPreservesRequiredUint64IdVectorsAndTime" fullname="CanonicalBottleIdentityTransportTests.RosCdrRoundTripPreservesRequiredUint64IdVectorsAndTime" methodname="RosCdrRoundTripPreservesRequiredUint64IdVectorsAndTime" classname="CanonicalBottleIdentityTransportTests" runstate="Runnable" seed="1797392029" result="Passed" start-time="2026-09-16 08:10:43Z" end-time="2026-09-16 08:10:43Z" duration="0.001330" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+        </test-case>
+        <test-case id="1008" name="RosMessageMapsDirectlyToGameObjectFullKeyBinding" fullname="CanonicalBottleIdentityTransportTests.RosMessageMapsDirectlyToGameObjectFullKeyBinding" methodname="RosMessageMapsDirectlyToGameObjectFullKeyBinding" classname="CanonicalBottleIdentityTransportTests" runstate="Runnable" seed="1688622878" result="Passed" start-time="2026-09-16 08:10:43Z" end-time="2026-09-16 08:10:43Z" duration="0.000327" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+        </test-case>
+        <test-case id="1011" name="RouterCommitsOnlyAfterSinkAccepts" fullname="CanonicalBottleIdentityTransportTests.RouterCommitsOnlyAfterSinkAccepts" methodname="RouterCommitsOnlyAfterSinkAccepts" classname="CanonicalBottleIdentityTransportTests" runstate="Runnable" seed="798784067" result="Passed" start-time="2026-09-16 08:10:43Z" end-time="2026-09-16 08:10:43Z" duration="0.000440" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+        </test-case>
+        <test-case id="1006" name="SameCanonicalIdentityIsParticipantIndependent" fullname="CanonicalBottleIdentityTransportTests.SameCanonicalIdentityIsParticipantIndependent" methodname="SameCanonicalIdentityIsParticipantIndependent" classname="CanonicalBottleIdentityTransportTests" runstate="Runnable" seed="445522140" result="Passed" start-time="2026-09-16 08:10:43Z" end-time="2026-09-16 08:10:43Z" duration="0.000146" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+          <output><![CDATA[Saving results to: C:/Users/23044/AppData/LocalLow/DefaultCompany/MRTKv3-IRT-MRO\TestResults.xml
+]]></output>
+        </test-case>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

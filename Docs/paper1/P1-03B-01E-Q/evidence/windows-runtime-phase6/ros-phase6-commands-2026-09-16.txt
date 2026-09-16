@@ -1,0 +1,24 @@
+# Run these commands on Linux ROS PC 192.168.11.46.
+# Do not start robot or AMIR driver nodes.
+
+source /opt/ros/humble/setup.bash
+source /home/dars-note-5070/iwata_ws/shear_ws/install/setup.bash
+export ROS_DOMAIN_ID=0
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+
+ros2 interface show share_semantic_interfaces/msg/CanonicalBottleObservation
+
+# 1. Expected: AcceptedNew
+ros2 topic pub --once /share/bottles/canonical_observation share_semantic_interfaces/msg/CanonicalBottleObservation "{source_id: 'A', session_id: 'S1', object_id: 42, lifecycle: 0, observation_sequence: 1, observation_stamp: {sec: 100, nanosec: 100000001}, observation_clock_domain: 'ros_time', frame_id: 'camera_color_optical_frame'}"
+
+# 2. Expected: AcceptedUpdate
+ros2 topic pub --once /share/bottles/canonical_observation share_semantic_interfaces/msg/CanonicalBottleObservation "{source_id: 'A', session_id: 'S1', object_id: 42, lifecycle: 0, observation_sequence: 2, observation_stamp: {sec: 100, nanosec: 200000002}, observation_clock_domain: 'ros_time', frame_id: 'camera_color_optical_frame'}"
+
+# 3. Exact repeat of message 2. Expected: DuplicateIgnored
+ros2 topic pub --once /share/bottles/canonical_observation share_semantic_interfaces/msg/CanonicalBottleObservation "{source_id: 'A', session_id: 'S1', object_id: 42, lifecycle: 0, observation_sequence: 2, observation_stamp: {sec: 100, nanosec: 200000002}, observation_clock_domain: 'ros_time', frame_id: 'camera_color_optical_frame'}"
+
+# 4. Same key and sequence, conflicting frame only. Expected: ConflictingDuplicateRejected
+ros2 topic pub --once /share/bottles/canonical_observation share_semantic_interfaces/msg/CanonicalBottleObservation "{source_id: 'A', session_id: 'S1', object_id: 42, lifecycle: 0, observation_sequence: 2, observation_stamp: {sec: 100, nanosec: 200000002}, observation_clock_domain: 'ros_time', frame_id: 'camera_color_optical_frame_conflict'}"
+
+# 5. Older sequence. Expected: OlderRejected
+ros2 topic pub --once /share/bottles/canonical_observation share_semantic_interfaces/msg/CanonicalBottleObservation "{source_id: 'A', session_id: 'S1', object_id: 42, lifecycle: 0, observation_sequence: 1, observation_stamp: {sec: 100, nanosec: 100000001}, observation_clock_domain: 'ros_time', frame_id: 'camera_color_optical_frame'}"

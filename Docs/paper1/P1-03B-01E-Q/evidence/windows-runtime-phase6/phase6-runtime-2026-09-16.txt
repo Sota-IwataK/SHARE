@@ -1,0 +1,79 @@
+P1-03B-01E-Q Phase 6 runtime validation evidence
+Date: 2026-09-16 Asia/Tokyo
+
+BASELINE
+- Branch: feature/p103b-canonical-identity
+- HEAD: 15dd3c813215fd77bc866f662df2dc3c54f5b75d
+- Unity: 2022.3.62f2
+- Initial tracked ROSConnection prefab: 192.168.11.30:10000, ConnectOnStart=true
+- Initial main.unity spawner count: exactly one
+- Initial serialized canonical subscriber count: zero; runtime auto-add is enabled
+
+NETWORK
+- Windows Unity PC: 192.168.11.29
+- Linux ROS PC / ROS-TCP Endpoint: 192.168.11.46:10000
+- Test-NetConnection TCP/10000: True
+- ROS_DOMAIN_ID: 0 (provided Linux runtime configuration)
+- RMW_IMPLEMENTATION: rmw_fastrtps_cpp (provided Linux runtime configuration)
+- Topic: /share/bottles/canonical_observation
+
+UNITY AUTOMATION
+- A temporary Editor-only harness opened Assets/Scenes/main.unity and entered Play Mode.
+- Before connecting to the reachable endpoint, outgoing ROS publisher and robot-control
+  behaviours found in the runtime scene were disabled.
+- The initial .30 connection thread was disconnected.
+- Runtime-only ROSConnection target was set to 192.168.11.46:10000.
+- Runtime-only BottleIdentityMode was set to Canonical.
+- No scene or prefab was saved.
+
+PHASE 6-1 OBSERVED RESULT
+- Unity process exit code: 0
+- Runtime ROS target: 192.168.11.46:10000
+- ROS connection thread: True
+- ROS handshake/connection error: False after a 3-second stability interval
+- Runtime spawner count: exactly one
+- Runtime canonical subscriber count: exactly one
+- Subscriber IsSubscribed: True
+- Subscriber topic: /share/bottles/canonical_observation
+- identityMode: Canonical
+- canonicalFeaturePublisher: OFF
+- authority: full-key, no legacy fallback
+- Result: Phase 6-1 PASS
+
+FAIL-CLOSED CLEANUP
+- Runtime BottleIdentityMode was returned to Legacy.
+- Canonical subscriber IsSubscribed became False.
+- ROSConnection was disconnected.
+- Result: fail-closed cleanup PASS
+- During process shutdown, the canceled initial ConnectOnStart attempt to the
+  tracked .30 default emitted a late connection-failed line. This occurred
+  after the .46 handshake PASS and editor success marker; the tracked default
+  was not changed or used as the Phase 6 endpoint.
+
+ROS PUBLISH AUTOMATION
+- TCP endpoint was reachable.
+- ssh BatchMode connections as the default Windows user and explicitly as
+  dars-note-5070 were both rejected with Permission denied
+  (publickey,password), exit code 255.
+- No password was requested or entered and no credential was changed.
+- Per the task rule for unavailable SSH, Phase 6-2 through 6-6 were not executed.
+- The five exact Linux commands are stored in ros-phase6-commands-2026-09-16.txt.
+
+DISPOSITIONS
+- AcceptedNew: not executed / not claimed
+- AcceptedUpdate: not executed / not claimed
+- DuplicateIgnored: not executed / not claimed
+- ConflictingDuplicateRejected: not executed / not claimed
+- OlderRejected: not executed / not claimed
+
+SCOPE SAFETY
+- No robot command was issued.
+- No AMIR driver node was started.
+- No geometry, BottleNearEE, holds_object, held commit, calibration,
+  canonical feature producer, TrackId conversion, or Phase 7 work was performed.
+- Production runtime semantics were not changed.
+
+VERDICT
+- Phase 6-1: PASS
+- Phase 6-2 through 6-6: HOLD (non-interactive SSH unavailable)
+- Overall Phase 6: HOLD
