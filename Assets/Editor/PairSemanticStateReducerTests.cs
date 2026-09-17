@@ -45,11 +45,11 @@ public sealed class PairSessionPolicyTests
     }
     [Test] public void B2_SessionSwitchDoesNotMutateControlState()
     {
-        var control = new SharedControlState { task_phase = TaskPhase.TRANSFER,
+        var control = new SharedControlState { task_phase = TaskPhase.Transfer,
             owner_type = SharedControlOwnerType.Robot, owner_id = 2, sequence = 9 };
         var p = new PairSessionPolicy(10);
         Assert.IsTrue(p.TryAccept("A", 300, 0)); Assert.IsTrue(p.TryAccept("B", 0, 11));
-        Assert.AreEqual(TaskPhase.TRANSFER, control.task_phase);
+        Assert.AreEqual(TaskPhase.Transfer, control.task_phase);
         Assert.AreEqual(SharedControlOwnerType.Robot, control.owner_type);
         Assert.AreEqual(2, control.owner_id); Assert.AreEqual(9, control.sequence);
     }

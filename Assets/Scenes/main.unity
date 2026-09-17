@@ -10839,6 +10839,7 @@ GameObject:
   - component: {fileID: 257910920}
   - component: {fileID: 257910923}
   - component: {fileID: 257910924}
+  - component: {fileID: 257910925}
   m_Layer: 0
   m_Name: SharedTeamStateSceneObject
   m_TagString: Untagged
@@ -10884,6 +10885,7 @@ MonoBehaviour:
   NetworkedBehaviours:
   - {fileID: 257910920}
   - {fileID: 257910923}
+  - {fileID: 257910925}
   ForceRemoteRenderTimeframe: 0
 --- !u!4 &257910922
 Transform:
@@ -10926,6 +10928,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 97a99d26ee8a7494db4b86d0bb6ab137, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!114 &257910925
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 257910919}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4c3a8943adf345aeb017a5fc5b341065, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
 --- !u!1 &259715463
 GameObject:
   m_ObjectHideFlags: 0

@@ -34,7 +34,7 @@ public sealed class SharedTeamControlStateNetwork :
             TargetIdValue = -1;
             OwnerTypeValue = (int)SharedControlOwnerType.None;
             OwnerIdValue = -1;
-            TaskPhaseValue = (int)TaskPhase.UNKNOWN;
+            TaskPhaseValue = (int)TaskPhase.Independent;
             SharedTimestampValue = CurrentSharedTimestamp();
         }
     }
@@ -55,25 +55,56 @@ public sealed class SharedTeamControlStateNetwork :
         lastObservedTimestamp = SharedTimestampValue;
     }
 
-    public bool TrySetTarget(int targetId) => TrySetControl(targetId, null, null, null);
+    public bool TrySetTarget(int targetId) => TrySetControl(targetId, null, null);
     public bool TrySetOwnership(SharedControlOwnerType ownerType, int ownerId)
-        => TrySetControl(null, ownerType, ownerId, null);
-    public bool TrySetTaskPhase(TaskPhase phase) => TrySetControl(null, null, null, phase);
+        => TrySetControl(null, ownerType, ownerId);
 
-    private bool TrySetControl(int? targetId, SharedControlOwnerType? ownerType, int? ownerId, TaskPhase? phase)
+    public bool TryRequestTaskPhaseTransition(
+        TaskPhase requested,
+        CoordinationInputSnapshot inputs,
+        out AuthoritativeTransitionRejection rejection)
+    {
+        bool runnerAvailable = Runner != null;
+        bool hasStateAuthority = runnerAvailable && HasStateAuthority;
+        if (!AuthoritativeTaskPhaseTransition.TryEvaluate(
+                runnerAvailable,
+                hasStateAuthority,
+                TaskPhaseValue,
+                requested,
+                inputs,
+                out int nextNetworkValue,
+                out rejection))
+            return false;
+
+        TaskPhaseValue = nextNetworkValue;
+        AdvanceVersion();
+        LogControlUpdate();
+        return true;
+    }
+
+    private bool TrySetControl(int? targetId, SharedControlOwnerType? ownerType, int? ownerId)
     {
         if (!HasStateAuthority || Runner == null) return false;
         if (targetId.HasValue) TargetIdValue = targetId.Value;
         if (ownerType.HasValue) OwnerTypeValue = (int)ownerType.Value;
         if (ownerId.HasValue) OwnerIdValue = ownerId.Value;
-        if (phase.HasValue) TaskPhaseValue = (int)phase.Value;
+        AdvanceVersion();
+        LogControlUpdate();
+        return true;
+    }
+
+    private void AdvanceVersion()
+    {
         SequenceValue = SequenceValue == int.MaxValue ? 1 : SequenceValue + 1;
         long timestamp = CurrentSharedTimestamp();
         SharedTimestampValue = timestamp > SharedTimestampValue ? timestamp : SharedTimestampValue + 1;
+    }
+
+    private void LogControlUpdate()
+    {
         if (enableEventLogs)
             Debug.Log("[SharedTeamState] CONTROL sequence=" + SequenceValue
                 + " timestamp=" + SharedTimestampValue + " phase=" + TaskPhaseValue);
-        return true;
     }
 
     private long CurrentSharedTimestamp() => Runner == null ? 0L : (long)(Runner.SimulationTime * 1000.0);
@@ -89,12 +120,17 @@ public sealed class SharedTeamControlStateNetwork :
         SharedTeamControlStateNetwork item = Instance;
         if (item != null && item.Object != null)
         {
+            if (!CoordinationStateMachine.TryParsePhase(item.TaskPhaseValue, out TaskPhase phase))
+            {
+                state = default;
+                return false;
+            }
             state = new SharedControlState
             {
                 target_id = item.TargetIdValue,
                 owner_type = (SharedControlOwnerType)item.OwnerTypeValue,
                 owner_id = item.OwnerIdValue,
-                task_phase = (TaskPhase)item.TaskPhaseValue,
+                task_phase = phase,
                 sequence = item.SequenceValue,
                 shared_timestamp = item.SharedTimestampValue
             };

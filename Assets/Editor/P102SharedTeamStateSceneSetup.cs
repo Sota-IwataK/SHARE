@@ -27,6 +27,8 @@ public static class P102SharedTeamStateSceneSetup
             target.AddComponent<SharedTeamControlStateNetwork>();
         if (target.GetComponent<SharedPairSemanticStateNetwork>() == null)
             target.AddComponent<SharedPairSemanticStateNetwork>();
+        if (target.GetComponent<ManualHandoverSessionNetwork>() == null)
+            target.AddComponent<ManualHandoverSessionNetwork>();
         if (target.GetComponent<LocalHoldStateIngress>() == null)
             target.AddComponent<LocalHoldStateIngress>();
 

@@ -4,12 +4,11 @@ using UnityEngine;
 
 public enum TaskPhase
 {
-    UNKNOWN = 0,
-    INDEPENDENT = 1,
-    PREPARING = 2,
-    READY = 3,
-    TRANSFER = 4,
-    RELEASED = 5
+    Independent = 0,
+    Preparing = 1,
+    Ready = 2,
+    Transfer = 3,
+    Released = 4
 }
 
 public enum SharedControlOwnerType

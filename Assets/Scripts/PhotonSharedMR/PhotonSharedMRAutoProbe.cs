@@ -365,11 +365,11 @@ public class PhotonSharedMRAutoProbe : MonoBehaviour
             switch (p102ActionIndex)
             {
                 case 0: action = "T2_TARGET"; attempted = control.TrySetTarget(101); break;
-                case 1: action = "T3_INDEPENDENT"; attempted = control.TrySetTaskPhase(TaskPhase.INDEPENDENT); break;
-                case 2: action = "T3_PREPARING"; attempted = control.TrySetTaskPhase(TaskPhase.PREPARING); break;
-                case 3: action = "T3_READY"; attempted = control.TrySetTaskPhase(TaskPhase.READY); break;
-                case 4: action = "T3_TRANSFER"; attempted = control.TrySetTaskPhase(TaskPhase.TRANSFER); break;
-                case 5: action = "T3_RELEASED"; attempted = control.TrySetTaskPhase(TaskPhase.RELEASED); break;
+                case 1: action = "T3_PREPARING"; attempted = TryProbePhase(control, TaskPhase.Preparing); break;
+                case 2: action = "T3_READY"; attempted = TryProbePhase(control, TaskPhase.Ready); break;
+                case 3: action = "T3_TRANSFER"; attempted = TryProbePhase(control, TaskPhase.Transfer); break;
+                case 4: action = "T3_RELEASED"; attempted = TryProbePhase(control, TaskPhase.Released); break;
+                case 5: action = "T3_INDEPENDENT"; attempted = TryProbePhase(control, TaskPhase.Independent); break;
                 case 6: action = "T4_NONE"; attempted = control.TrySetOwnership(SharedControlOwnerType.None, -1); break;
                 case 7: action = "T4_NEW_AMIR"; attempted = control.TrySetOwnership(SharedControlOwnerType.Robot, 1); break;
                 case 8: action = "T4_OLD_AMIR"; attempted = control.TrySetOwnership(SharedControlOwnerType.Robot, 2); break;
@@ -380,8 +380,9 @@ public class PhotonSharedMRAutoProbe : MonoBehaviour
         {
             switch (p102ActionIndex)
             {
-                case 0: action = "T7_READY"; attempted = control.TrySetTaskPhase(TaskPhase.READY); break;
-                case 1: action = "T7_NEW_AMIR"; attempted = control.TrySetOwnership(SharedControlOwnerType.Robot, 1); break;
+                case 0: action = "T7_PREPARING"; attempted = TryProbePhase(control, TaskPhase.Preparing); break;
+                case 1: action = "T7_READY"; attempted = TryProbePhase(control, TaskPhase.Ready); break;
+                case 2: action = "T7_NEW_AMIR"; attempted = control.TrySetOwnership(SharedControlOwnerType.Robot, 1); break;
                 default: return;
             }
         }
@@ -395,6 +396,20 @@ public class PhotonSharedMRAutoProbe : MonoBehaviour
             + " accepted=" + attempted);
         p102ActionIndex++;
         p102NextActionTime = Time.realtimeSinceStartup + 2f;
+    }
+
+    private static bool TryProbePhase(SharedTeamControlStateNetwork control, TaskPhase requested)
+    {
+        CoordinationInputSnapshot inputs = new CoordinationInputSnapshot(
+            coordinationRequested: true,
+            readyConditionMet: true,
+            transferConditionMet: true,
+            releaseConditionMet: true,
+            completionConditionMet: true,
+            participantsConnected: true,
+            inputsFresh: true,
+            ownershipConsistent: true);
+        return control.TryRequestTaskPhaseTransition(requested, inputs, out _);
     }
 
     private static int CountActivePlayers(NetworkRunner runner)
