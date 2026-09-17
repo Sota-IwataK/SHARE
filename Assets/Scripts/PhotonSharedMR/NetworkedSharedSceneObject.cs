@@ -1083,7 +1083,7 @@ public class NetworkedSharedSceneObject :
                     localCanonicalFrameId));
 #endif
         }
-        catch (ArgumentException)
+        catch (System.ArgumentException)
         {
             observation = default;
             return false;

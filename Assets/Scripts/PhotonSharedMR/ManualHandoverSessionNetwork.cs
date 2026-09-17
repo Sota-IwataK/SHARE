@@ -293,10 +293,11 @@ public sealed class ManualHandoverSessionNetwork :
 
     public static bool TryRead(out ManualHandoverTransportSnapshot snapshot)
     {
+        snapshot = default;
 #if FUSION_WEAVER && FUSION2
         return Instance != null && Instance.Object != null && Instance.TryReadSnapshot(out snapshot);
 #else
-        snapshot = default; return false;
+        return false;
 #endif
     }
 }
