@@ -33,7 +33,14 @@ public enum ManualHandoverProbeCommand
     WrongSessionReady = 16,
     WrongSourceReady = 17,
     WrongTargetSessionReady = 18,
-    WrongObjectReady = 19
+    WrongObjectReady = 19,
+    Retire = 20,
+    DumpLifecycle = 21,
+    InitializeNextCaseA = 22,
+    InitializeNextCaseB = 23,
+    SubmitRetiredRequest = 24,
+    SubmitRetiredReady = 25,
+    RunCapacityBoundary = 26
 }
 
 public readonly struct ManualHandoverProbeCommandEnvelope
@@ -60,6 +67,7 @@ public sealed class ManualHandoverRuntimeProbe : MonoBehaviour
     public const string LabelArgument = "-manualHandoverProbeLabel";
     public const string RunTokenArgument = "-manualHandoverRunToken";
     public const string InitialCommandArgument = "-manualHandoverInitialCommand";
+    public const string AutoJoinArgument = "-manualHandoverAutoJoin";
     public const string CommandFileName = "p103a_manual_handover.command";
     public const ulong CreatedSequence = 100UL;
 
@@ -75,10 +83,15 @@ public sealed class ManualHandoverRuntimeProbe : MonoBehaviour
     private float nextCommandPollTime;
     private float nextHeartbeatTime;
     private bool initialCommandConsumed;
+    private bool autoJoinRequested;
+    private bool autoJoinStarted;
     private bool baselineCaptured;
     private SharedControlState baseline;
     private string lastSnapshotFingerprint;
+    private string lastLifecycleFingerprint;
     private string lastDiagnosticFingerprint;
+    private bool hasRetiredSnapshot;
+    private ManualHandoverTransportSnapshot retiredSnapshot;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void CreateFromCommandLine()
@@ -99,6 +112,7 @@ public sealed class ManualHandoverRuntimeProbe : MonoBehaviour
         probe.defaultRunToken = SanitizeRunToken(
             GetArgValue(args, RunTokenArgument, BuildDefaultRunToken()));
         probe.pendingInitialCommand = GetArgValue(args, InitialCommandArgument, null);
+        probe.autoJoinRequested = HasArgument(args, AutoJoinArgument);
         probe.commandFilePath = Path.Combine(Application.persistentDataPath, CommandFileName);
         probe.DeleteStaleCommandFile();
 
@@ -107,12 +121,14 @@ public sealed class ManualHandoverRuntimeProbe : MonoBehaviour
             + " debugBuild=" + Debug.isDebugBuild
             + " commandFile=" + probe.commandFilePath
             + " runToken=" + probe.defaultRunToken
-            + " initialCommand=" + (probe.pendingInitialCommand ?? "none"));
+            + " initialCommand=" + (probe.pendingInitialCommand ?? "none")
+            + " autoJoin=" + probe.autoJoinRequested);
 #endif
     }
 
     private void Update()
     {
+        TryStartSharedRoom();
         CaptureBaselineIfAvailable();
         LogStateChanges();
 
@@ -155,6 +171,44 @@ public sealed class ManualHandoverRuntimeProbe : MonoBehaviour
         return false;
     }
 
+    private static bool HasArgument(string[] args, string expected)
+    {
+        if (args == null)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (string.Equals(args[i], expected, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void TryStartSharedRoom()
+    {
+        if (!autoJoinRequested || autoJoinStarted)
+        {
+            return;
+        }
+
+        PhotonFusionSharedRoomBootstrap bootstrap = FindFirstObjectByType<
+            PhotonFusionSharedRoomBootstrap>(FindObjectsInactive.Exclude);
+        if (bootstrap == null)
+        {
+            return;
+        }
+
+        autoJoinStarted = true;
+        if (!bootstrap.IsRunning)
+        {
+            _ = bootstrap.StartSharedRoom();
+        }
+    }
+
     public static bool TryParseCommand(
         string raw,
         string fallbackRunToken,
@@ -176,8 +230,17 @@ public sealed class ManualHandoverRuntimeProbe : MonoBehaviour
         switch (commandText)
         {
             case "dump": command = ManualHandoverProbeCommand.Dump; break;
+            case "dump-lifecycle": command = ManualHandoverProbeCommand.DumpLifecycle; break;
             case "init-a": command = ManualHandoverProbeCommand.InitializeCaseA; break;
             case "init-b": command = ManualHandoverProbeCommand.InitializeCaseB; break;
+            case "new-session-a":
+            case "init-next-a": command = ManualHandoverProbeCommand.InitializeNextCaseA; break;
+            case "new-session-b":
+            case "init-next-b": command = ManualHandoverProbeCommand.InitializeNextCaseB; break;
+            case "retire": command = ManualHandoverProbeCommand.Retire; break;
+            case "request-retired": command = ManualHandoverProbeCommand.SubmitRetiredRequest; break;
+            case "ready-retired": command = ManualHandoverProbeCommand.SubmitRetiredReady; break;
+            case "capacity-boundary": command = ManualHandoverProbeCommand.RunCapacityBoundary; break;
             case "request": command = ManualHandoverProbeCommand.SubmitRequest; break;
             case "request-duplicate": command = ManualHandoverProbeCommand.DuplicateRequest; break;
             case "request-older": command = ManualHandoverProbeCommand.OlderRequest; break;
@@ -305,7 +368,8 @@ public sealed class ManualHandoverRuntimeProbe : MonoBehaviour
         }
 
         CaptureBaselineIfAvailable();
-        if (envelope.Command == ManualHandoverProbeCommand.Dump)
+        if (envelope.Command == ManualHandoverProbeCommand.Dump
+            || envelope.Command == ManualHandoverProbeCommand.DumpLifecycle)
         {
             LogCommandResult(envelope.Command, source, true, "Dumped", "None");
             LogCurrentState("command-dump");
@@ -313,9 +377,30 @@ public sealed class ManualHandoverRuntimeProbe : MonoBehaviour
         }
 
         if (envelope.Command == ManualHandoverProbeCommand.InitializeCaseA
-            || envelope.Command == ManualHandoverProbeCommand.InitializeCaseB)
+            || envelope.Command == ManualHandoverProbeCommand.InitializeCaseB
+            || envelope.Command == ManualHandoverProbeCommand.InitializeNextCaseA
+            || envelope.Command == ManualHandoverProbeCommand.InitializeNextCaseB)
         {
             ExecuteInitialize(network, envelope, source);
+            return;
+        }
+
+        if (envelope.Command == ManualHandoverProbeCommand.Retire)
+        {
+            ExecuteRetire(network, envelope.Command, source);
+            return;
+        }
+
+        if (envelope.Command == ManualHandoverProbeCommand.RunCapacityBoundary)
+        {
+            ExecuteCapacityBoundary(network, envelope, source);
+            return;
+        }
+
+        if (envelope.Command == ManualHandoverProbeCommand.SubmitRetiredRequest
+            || envelope.Command == ManualHandoverProbeCommand.SubmitRetiredReady)
+        {
+            ExecuteRetiredEvent(network, localAvatar.ParticipantId, envelope.Command, source);
             return;
         }
 
@@ -355,15 +440,9 @@ public sealed class ManualHandoverRuntimeProbe : MonoBehaviour
         return;
 #endif
 
-        if (ManualHandoverSessionNetwork.TryRead(out _))
-        {
-            LogCommandResult(envelope.Command, source, false,
-                "SessionAlreadyActive", "Unavailable");
-            return;
-        }
-
         ManualHandoverProbeCase probeCase = envelope.Command
             == ManualHandoverProbeCommand.InitializeCaseA
+            || envelope.Command == ManualHandoverProbeCommand.InitializeNextCaseA
             ? ManualHandoverProbeCase.CaseA
             : ManualHandoverProbeCase.CaseB;
         ulong timestamp = UtcMilliseconds();
@@ -380,6 +459,191 @@ public sealed class ManualHandoverRuntimeProbe : MonoBehaviour
         LogCommandResult(envelope.Command, source, accepted, reason,
             accepted ? ManualHandoverValidationResult.Accepted.ToString() : "Unavailable");
         LogCurrentState("after-initialize");
+    }
+
+    private void ExecuteRetire(
+        ManualHandoverSessionNetwork network,
+        ManualHandoverProbeCommand command,
+        string source)
+    {
+        if (ManualHandoverSessionNetwork.TryReadLifecycle(
+                out ManualHandoverSessionLifecycleSnapshot lifecycle)
+            && lifecycle.State == ManualHandoverSessionLifecycleState.Active
+            && lifecycle.HasRetainedSession)
+        {
+            retiredSnapshot = lifecycle.RetainedSession;
+            hasRetiredSnapshot = true;
+        }
+
+        bool accepted = network.TryRetireSession(out string reason);
+        LogCommandResult(command, source, accepted, reason,
+            accepted ? ManualHandoverSessionLifecycleResult.Accepted.ToString() : "Unavailable");
+        LogCurrentState("after-retire");
+    }
+
+    private void ExecuteRetiredEvent(
+        ManualHandoverSessionNetwork network,
+        SharedMRParticipantId local,
+        ManualHandoverProbeCommand command,
+        string source)
+    {
+        if (!hasRetiredSnapshot)
+        {
+            LogCommandResult(command, source, false,
+                "RetiredSnapshotUnavailable", "Unavailable");
+            return;
+        }
+
+        ManualHandoverSession session = retiredSnapshot.Session;
+        bool isRequest = command == ManualHandoverProbeCommand.SubmitRetiredRequest;
+        SharedMRParticipantId required = isRequest
+            ? session.RoleBinding.GiverParticipantId
+            : session.RoleBinding.ReceiverParticipantId;
+        if (local != required)
+        {
+            LogCommandResult(command, source, false,
+                isRequest ? "LocalParticipantIsNotRetiredGiver" : "LocalParticipantIsNotRetiredReceiver",
+                "Unavailable");
+            return;
+        }
+
+        ulong sequence = NextSequence(retiredSnapshot);
+        bool submitted;
+        if (isRequest)
+        {
+            submitted = network.SubmitLocal(new ManualCoordinationRequest(
+                session.CoordinationSessionId,
+                sequence,
+                UtcMilliseconds(),
+                BuildSourceClock(local),
+                local,
+                session.TargetBottleKey));
+        }
+        else
+        {
+            submitted = network.SubmitLocal(new ReadyAcknowledgement(
+                session.CoordinationSessionId,
+                sequence,
+                UtcMilliseconds(),
+                BuildSourceClock(local),
+                local,
+                session.TargetBottleKey));
+        }
+
+        string expected = "AuthorityStateInvalid";
+        if (ManualHandoverSessionNetwork.TryReadLifecycle(
+                out ManualHandoverSessionLifecycleSnapshot current))
+        {
+            expected = current.State == ManualHandoverSessionLifecycleState.Retired
+                ? ManualHandoverValidationResult.SessionRetired.ToString()
+                : current.State == ManualHandoverSessionLifecycleState.Active
+                    ? ManualHandoverValidationResult.SessionMismatch.ToString()
+                    : ManualHandoverValidationResult.AuthorityStateInvalid.ToString();
+        }
+        LogCommandResult(command, source, submitted,
+            submitted ? "SubmittedRetiredEventToProductionTransport" : "ProductionLocalGuardRejected",
+            expected);
+        LogCurrentState("after-command-" + command);
+    }
+
+    private void ExecuteCapacityBoundary(
+        ManualHandoverSessionNetwork network,
+        ManualHandoverProbeCommandEnvelope envelope,
+        string source)
+    {
+#if FUSION_WEAVER && FUSION2
+        if (network.Object == null || !network.Object.HasStateAuthority)
+        {
+            LogCommandResult(envelope.Command, source, false,
+                "NoStateAuthority", "Unavailable");
+            return;
+        }
+#else
+        LogCommandResult(envelope.Command, source, false,
+            "FusionInactive", "Unavailable");
+        return;
+#endif
+
+        if (!ManualHandoverSessionNetwork.TryReadLifecycle(
+                out ManualHandoverSessionLifecycleSnapshot initial)
+            || initial.State != ManualHandoverSessionLifecycleState.NoSession
+            || initial.HasRetainedSession
+            || initial.RetiredSessionIds.Count != 0)
+        {
+            LogCommandResult(envelope.Command, source, false,
+                "CapacityBoundaryRequiresFreshRoom", "NoSession");
+            LogCurrentState("capacity-boundary-precondition-failed");
+            return;
+        }
+
+        ulong timestamp = UtcMilliseconds();
+        for (int trial = 1; trial <= ManualHandoverSessionNetwork.RetiredSessionCapacity; trial++)
+        {
+            string token = envelope.RunToken + "-capacity-" + trial.ToString("D2");
+            string initializeReason = "SessionConstructionFailed";
+            string retireReason = "NotAttempted";
+            if (!TryCreateVerificationSession(
+                    ManualHandoverProbeCase.CaseA, token, timestamp + (ulong)trial,
+                    out ManualHandoverSession session)
+                || !network.TryInitializeSession(session, out initializeReason)
+                || !network.TryRetireSession(out retireReason))
+            {
+                Debug.LogError("[ManualHandoverProbe] event=CAPACITY_BOUNDARY"
+                    + " label=" + probeLabel
+                    + " result=FAIL"
+                    + " trial=" + trial
+                    + " initializeReason=" + initializeReason
+                    + " retireReason=" + retireReason);
+                LogCommandResult(envelope.Command, source, false,
+                    "BoundarySetupFailedAtTrial" + trial, "Accepted");
+                LogCurrentState("capacity-boundary-setup-failed");
+                return;
+            }
+        }
+
+        if (!ManualHandoverSessionNetwork.TryReadLifecycle(
+                out ManualHandoverSessionLifecycleSnapshot beforeRejection))
+        {
+            LogCommandResult(envelope.Command, source, false,
+                "BoundarySnapshotUnavailable", "Retired");
+            return;
+        }
+
+        string trial17Token = envelope.RunToken + "-capacity-17";
+        bool trial17Constructed = TryCreateVerificationSession(
+            ManualHandoverProbeCase.CaseA, trial17Token,
+            timestamp + (ulong)ManualHandoverSessionNetwork.RetiredSessionCapacity + 1UL,
+            out ManualHandoverSession trial17);
+        string rejectionReason = trial17Constructed
+            ? "NotAttempted"
+            : "SessionConstructionFailed";
+        bool trial17Accepted = trial17Constructed
+            && network.TryInitializeSession(trial17, out rejectionReason);
+
+        bool hasAfter = ManualHandoverSessionNetwork.TryReadLifecycle(
+            out ManualHandoverSessionLifecycleSnapshot afterRejection);
+        bool unchanged = hasAfter && LifecycleEquivalent(beforeRejection, afterRejection);
+        bool passed = beforeRejection.State == ManualHandoverSessionLifecycleState.Retired
+            && beforeRejection.RetiredSessionIds.Count
+                == ManualHandoverSessionNetwork.RetiredSessionCapacity
+            && !trial17Accepted
+            && string.Equals(rejectionReason,
+                ManualHandoverSessionLifecycleResult
+                    .RetiredSessionLedgerCapacityExceeded.ToString(),
+                StringComparison.Ordinal)
+            && unchanged;
+
+        Debug.Log("[ManualHandoverProbe] event=CAPACITY_BOUNDARY"
+            + " label=" + probeLabel
+            + " result=" + (passed ? "PASS" : "FAIL")
+            + " completedRetirements=" + beforeRejection.RetiredSessionIds.Count
+            + " trial17Accepted=" + trial17Accepted
+            + " rejectionReason=" + rejectionReason
+            + " stateUnchanged=" + unchanged);
+        LogCommandResult(envelope.Command, source, passed,
+            rejectionReason, ManualHandoverSessionLifecycleResult
+                .RetiredSessionLedgerCapacityExceeded.ToString());
+        LogCurrentState("after-capacity-boundary");
     }
 
     private void ExecuteRequest(
@@ -538,12 +802,24 @@ public sealed class ManualHandoverRuntimeProbe : MonoBehaviour
 
     private void LogStateChanges()
     {
-        if (ManualHandoverSessionNetwork.TryRead(out ManualHandoverTransportSnapshot snapshot))
+        if (ManualHandoverSessionNetwork.TryReadLifecycle(
+                out ManualHandoverSessionLifecycleSnapshot lifecycle))
         {
-            string fingerprint = SnapshotFingerprint(snapshot);
-            if (!string.Equals(lastSnapshotFingerprint, fingerprint, StringComparison.Ordinal))
+            if (lifecycle.State == ManualHandoverSessionLifecycleState.Retired
+                && lifecycle.HasRetainedSession)
             {
-                lastSnapshotFingerprint = fingerprint;
+                retiredSnapshot = lifecycle.RetainedSession;
+                hasRetiredSnapshot = true;
+            }
+
+            string lifecycleFingerprint = LifecycleFingerprint(lifecycle);
+            if (!string.Equals(lastLifecycleFingerprint, lifecycleFingerprint,
+                    StringComparison.Ordinal))
+            {
+                lastLifecycleFingerprint = lifecycleFingerprint;
+                lastSnapshotFingerprint = lifecycle.HasRetainedSession
+                    ? SnapshotFingerprint(lifecycle.RetainedSession)
+                    : null;
                 LogCurrentState("manual-state-changed");
             }
         }
@@ -622,8 +898,17 @@ public sealed class ManualHandoverRuntimeProbe : MonoBehaviour
         }
 #endif
 
-        bool hasSnapshot = ManualHandoverSessionNetwork.TryRead(
-            out ManualHandoverTransportSnapshot snapshot);
+        bool hasLifecycle = ManualHandoverSessionNetwork.TryReadLifecycle(
+            out ManualHandoverSessionLifecycleSnapshot lifecycle);
+        bool hasSnapshot = hasLifecycle && lifecycle.HasRetainedSession;
+        ManualHandoverTransportSnapshot snapshot = hasSnapshot
+            ? lifecycle.RetainedSession
+            : default;
+        string lifecycleFields = hasLifecycle
+            ? " lifecycleState=" + lifecycle.State
+                + " retiredCount=" + lifecycle.RetiredSessionIds.Count
+                + " retiredSessions=" + string.Join(",", lifecycle.RetiredSessionIds)
+            : " lifecycleState=Unavailable retiredCount=-1 retiredSessions=Unavailable";
         string manualFields = hasSnapshot
             ? " sessionValid=True"
                 + " coordinationSession=" + snapshot.Session.CoordinationSessionId
@@ -656,6 +941,7 @@ public sealed class ManualHandoverRuntimeProbe : MonoBehaviour
             + " master=" + master
             + " stateAuthority=" + stateAuthority
             + " activePlayers=" + activePlayers
+            + lifecycleFields
             + manualFields
             + controlFields);
     }
@@ -708,6 +994,62 @@ public sealed class ManualHandoverRuntimeProbe : MonoBehaviour
             + (value.ReadyAccepted ? value.Ready.EventSequence : 0UL) + "|"
             + value.AuthorityAcceptedSequence + "|"
             + value.AuthorityAcceptedTimestamp;
+    }
+
+    private static string LifecycleFingerprint(ManualHandoverSessionLifecycleSnapshot value)
+    {
+        return value.State + "|"
+            + value.HasRetainedSession + "|"
+            + (value.HasRetainedSession ? SnapshotFingerprint(value.RetainedSession) : "none") + "|"
+            + string.Join(",", value.RetiredSessionIds);
+    }
+
+    private static bool LifecycleEquivalent(
+        ManualHandoverSessionLifecycleSnapshot left,
+        ManualHandoverSessionLifecycleSnapshot right)
+    {
+        if (left.State != right.State
+            || left.HasRetainedSession != right.HasRetainedSession
+            || left.RetiredSessionIds.Count != right.RetiredSessionIds.Count)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < left.RetiredSessionIds.Count; i++)
+        {
+            if (!string.Equals(left.RetiredSessionIds[i], right.RetiredSessionIds[i],
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        if (!left.HasRetainedSession)
+        {
+            return true;
+        }
+
+        ManualHandoverTransportSnapshot a = left.RetainedSession;
+        ManualHandoverTransportSnapshot b = right.RetainedSession;
+        return string.Equals(a.Session.CoordinationSessionId,
+                b.Session.CoordinationSessionId, StringComparison.Ordinal)
+            && a.Session.RoleBinding.GiverParticipantId
+                == b.Session.RoleBinding.GiverParticipantId
+            && a.Session.RoleBinding.GiverRobotId == b.Session.RoleBinding.GiverRobotId
+            && a.Session.RoleBinding.ReceiverParticipantId
+                == b.Session.RoleBinding.ReceiverParticipantId
+            && a.Session.RoleBinding.ReceiverRobotId == b.Session.RoleBinding.ReceiverRobotId
+            && a.Session.TargetBottleKey == b.Session.TargetBottleKey
+            && a.RequestAccepted == b.RequestAccepted
+            && (!a.RequestAccepted
+                || (a.Request.EventSequence == b.Request.EventSequence
+                    && a.Request.EventTimestamp == b.Request.EventTimestamp))
+            && a.ReadyAccepted == b.ReadyAccepted
+            && (!a.ReadyAccepted
+                || (a.Ready.EventSequence == b.Ready.EventSequence
+                    && a.Ready.EventTimestamp == b.Ready.EventTimestamp))
+            && a.AuthorityAcceptedSequence == b.AuthorityAcceptedSequence
+            && a.AuthorityAcceptedTimestamp == b.AuthorityAcceptedTimestamp;
     }
 
     private static ulong NextSequence(ManualHandoverTransportSnapshot snapshot)

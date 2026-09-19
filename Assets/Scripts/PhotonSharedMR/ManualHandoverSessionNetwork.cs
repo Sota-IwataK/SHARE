@@ -13,11 +13,16 @@ public sealed class ManualHandoverSessionNetwork :
     MonoBehaviour
 #endif
 {
+    public const int RetiredSessionCapacity = 16;
     public static ManualHandoverSessionNetwork Instance { get; private set; }
     public ManualHandoverEventDiagnostic LastDiagnostic { get; private set; }
 
 #if FUSION_WEAVER && FUSION2
+    [Networked] private int LifecycleStateValue { get; set; }
     [Networked] private NetworkBool SessionValid { get; set; }
+    [Networked] private int RetiredSessionCountValue { get; set; }
+    [Networked, Capacity(RetiredSessionCapacity)]
+    private NetworkArray<NetworkString<_128>> RetiredSessionIdsValue => default;
     [Networked] private NetworkString<_128> CoordinationSessionIdValue { get; set; }
     [Networked] private int GiverParticipantValue { get; set; }
     [Networked] private int GiverRobotValue { get; set; }
@@ -50,32 +55,50 @@ public sealed class ManualHandoverSessionNetwork :
     {
         if (Runner == null) { reason = "RunnerUnavailable"; return false; }
         if (!HasStateAuthority) { reason = "NoStateAuthority"; return false; }
-        if (SessionValid) { reason = "SessionAlreadyActive"; return false; }
-        if (!ManualHandoverTransportContract.TryCreateInitial(
-                session, AuthorityTimeMilliseconds(), out ManualHandoverTransportSnapshot snapshot))
-        { reason = "InvalidSessionOrTransportCapacity"; return false; }
+        if (!TryReadLifecycleContract(out ManualHandoverSessionLifecycleContract lifecycle))
+        { reason = "AuthorityStateInvalid"; return false; }
+
+        ManualHandoverSessionLifecycleResult result = lifecycle.TryActivate(
+            session, AuthorityTimeMilliseconds(), RetiredSessionCapacity);
+        if (result != ManualHandoverSessionLifecycleResult.Accepted)
+        { reason = result.ToString(); return false; }
+
+        ManualHandoverTransportSnapshot snapshot = lifecycle.RetainedSession;
         if (!TryEncodeSession(snapshot.Session, out NetworkString<_128> coordinationSession,
                 out NetworkString<_64> source, out NetworkString<_128> targetSession)
             || !TrySetNetworkString(ManualHandoverTransportContract.AuthorityClockDomain,
                 out NetworkString<_64> authorityClock))
         { reason = "PhotonNetworkStringWouldTruncate"; return false; }
 
-        CoordinationSessionIdValue = coordinationSession;
-        GiverParticipantValue = (int)session.RoleBinding.GiverParticipantId;
-        GiverRobotValue = session.RoleBinding.GiverRobotId;
-        ReceiverParticipantValue = (int)session.RoleBinding.ReceiverParticipantId;
-        ReceiverRobotValue = session.RoleBinding.ReceiverRobotId;
-        TargetSourceIdValue = source;
-        TargetSessionIdValue = targetSession;
-        TargetObjectIdValue = session.TargetBottleKey.ObjectId;
-        CreatedSequenceValue = session.CreatedSequence;
-        CreatedTimestampValue = session.CreatedTimestamp;
-        RequestAcceptedValue = false;
-        ReadyAcceptedValue = false;
-        AuthorityAcceptedSequenceValue = snapshot.AuthorityAcceptedSequence;
-        AuthorityAcceptedTimestampValue = snapshot.AuthorityAcceptedTimestamp;
-        AuthorityClockDomainValue = authorityClock;
-        SessionValid = true;
+        CommitNewActiveSession(snapshot, coordinationSession, source, targetSession, authorityClock);
+        reason = "Accepted";
+        return true;
+    }
+
+    public bool TryRetireSession(out string reason)
+    {
+        if (Runner == null) { reason = "RunnerUnavailable"; return false; }
+        if (!HasStateAuthority) { reason = "NoStateAuthority"; return false; }
+        if (!TryReadLifecycleContract(out ManualHandoverSessionLifecycleContract lifecycle))
+        { reason = "AuthorityStateInvalid"; return false; }
+        if (lifecycle.State == ManualHandoverSessionLifecycleState.Active
+            && lifecycle.RetiredSessionCount >= RetiredSessionCapacity)
+        {
+            reason = ManualHandoverSessionLifecycleResult
+                .RetiredSessionLedgerCapacityExceeded.ToString();
+            return false;
+        }
+
+        ManualHandoverSessionLifecycleResult result = lifecycle.TryRetire();
+        if (result != ManualHandoverSessionLifecycleResult.Accepted)
+        { reason = result.ToString(); return false; }
+
+        string retiredId = lifecycle.RetainedSession.Session.CoordinationSessionId;
+        if (!TrySetNetworkString(retiredId, out NetworkString<_128> encodedRetiredId))
+        { reason = "PhotonNetworkStringWouldTruncate"; return false; }
+        RetiredSessionIdsValue.Set(RetiredSessionCountValue, encodedRetiredId);
+        RetiredSessionCountValue++;
+        LifecycleStateValue = (int)ManualHandoverSessionLifecycleState.Retired;
         reason = "Accepted";
         return true;
     }
@@ -133,31 +156,83 @@ public sealed class ManualHandoverSessionNetwork :
     private void ApplyRequest(PlayerRef source, ManualCoordinationRequest request)
     {
         if (!Object.HasStateAuthority) return;
-        if (!TryReadSnapshot(out ManualHandoverTransportSnapshot current))
+        if (!TryReadLifecycleContract(out ManualHandoverSessionLifecycleContract lifecycle))
         { Record(ManualHandoverEventType.CoordinationRequest, request,
             ManualHandoverValidationResult.AuthorityStateInvalid); return; }
+        if (lifecycle.State != ManualHandoverSessionLifecycleState.Active)
+        {
+            ManualHandoverValidationResult inactiveResult = lifecycle.TryAcceptRequest(
+                SharedMRParticipantId.Unassigned, request, AuthorityTimeMilliseconds());
+            Record(ManualHandoverEventType.CoordinationRequest, request, inactiveResult);
+            return;
+        }
         if (!TryResolveConnectedParticipant(source, out SharedMRParticipantId actual))
         { Record(ManualHandoverEventType.CoordinationRequest, request,
             ManualHandoverValidationResult.RpcSenderMismatch); return; }
-        ManualHandoverValidationResult result = ManualHandoverTransportContract.TryAcceptRequest(
-            current, actual, request, AuthorityTimeMilliseconds(), out ManualHandoverTransportSnapshot next);
-        if (result == ManualHandoverValidationResult.Accepted) Commit(next);
+        ManualHandoverValidationResult result = lifecycle.TryAcceptRequest(
+            actual, request, AuthorityTimeMilliseconds());
+        if (result == ManualHandoverValidationResult.Accepted)
+            Commit(lifecycle.RetainedSession);
         Record(ManualHandoverEventType.CoordinationRequest, request, result);
     }
 
     private void ApplyReady(PlayerRef source, ReadyAcknowledgement ready)
     {
         if (!Object.HasStateAuthority) return;
-        if (!TryReadSnapshot(out ManualHandoverTransportSnapshot current))
+        if (!TryReadLifecycleContract(out ManualHandoverSessionLifecycleContract lifecycle))
         { Record(ManualHandoverEventType.ReadyAcknowledgement, ready,
             ManualHandoverValidationResult.AuthorityStateInvalid); return; }
+        if (lifecycle.State != ManualHandoverSessionLifecycleState.Active)
+        {
+            ManualHandoverValidationResult inactiveResult = lifecycle.TryAcceptReady(
+                SharedMRParticipantId.Unassigned, ready, AuthorityTimeMilliseconds());
+            Record(ManualHandoverEventType.ReadyAcknowledgement, ready, inactiveResult);
+            return;
+        }
         if (!TryResolveConnectedParticipant(source, out SharedMRParticipantId actual))
         { Record(ManualHandoverEventType.ReadyAcknowledgement, ready,
             ManualHandoverValidationResult.RpcSenderMismatch); return; }
-        ManualHandoverValidationResult result = ManualHandoverTransportContract.TryAcceptReady(
-            current, actual, ready, AuthorityTimeMilliseconds(), out ManualHandoverTransportSnapshot next);
-        if (result == ManualHandoverValidationResult.Accepted) Commit(next);
+        ManualHandoverValidationResult result = lifecycle.TryAcceptReady(
+            actual, ready, AuthorityTimeMilliseconds());
+        if (result == ManualHandoverValidationResult.Accepted)
+            Commit(lifecycle.RetainedSession);
         Record(ManualHandoverEventType.ReadyAcknowledgement, ready, result);
+    }
+
+    private void CommitNewActiveSession(
+        ManualHandoverTransportSnapshot snapshot,
+        NetworkString<_128> coordinationSession,
+        NetworkString<_64> targetSource,
+        NetworkString<_128> targetSession,
+        NetworkString<_64> authorityClock)
+    {
+        ManualHandoverSession session = snapshot.Session;
+        CoordinationSessionIdValue = coordinationSession;
+        GiverParticipantValue = (int)session.RoleBinding.GiverParticipantId;
+        GiverRobotValue = session.RoleBinding.GiverRobotId;
+        ReceiverParticipantValue = (int)session.RoleBinding.ReceiverParticipantId;
+        ReceiverRobotValue = session.RoleBinding.ReceiverRobotId;
+        TargetSourceIdValue = targetSource;
+        TargetSessionIdValue = targetSession;
+        TargetObjectIdValue = session.TargetBottleKey.ObjectId;
+        CreatedSequenceValue = session.CreatedSequence;
+        CreatedTimestampValue = session.CreatedTimestamp;
+        RequestSourceSequenceValue = 0UL;
+        RequestSourceTimestampValue = 0UL;
+        RequestSourceClockValue = default;
+        RequestSourceParticipantValue = (int)SharedMRParticipantId.Unassigned;
+        RequestAcceptedValue = false;
+        ReadySourceSequenceValue = 0UL;
+        ReadySourceTimestampValue = 0UL;
+        ReadySourceClockValue = default;
+        ReadySourceParticipantValue = (int)SharedMRParticipantId.Unassigned;
+        ReadyAcceptedValue = false;
+        AuthorityAcceptedSequenceValue = snapshot.AuthorityAcceptedSequence;
+        AuthorityAcceptedTimestampValue = snapshot.AuthorityAcceptedTimestamp;
+        AuthorityClockDomainValue = authorityClock;
+        LastDiagnostic = default;
+        LifecycleStateValue = (int)ManualHandoverSessionLifecycleState.Active;
+        SessionValid = true;
     }
 
     private void Commit(ManualHandoverTransportSnapshot snapshot)
@@ -218,6 +293,39 @@ public sealed class ManualHandoverSessionNetwork :
             return snapshot.IsValid;
         }
         catch (System.ArgumentException) { return false; }
+    }
+
+    private bool TryReadLifecycleContract(out ManualHandoverSessionLifecycleContract lifecycle)
+    {
+        lifecycle = null;
+        if (LifecycleStateValue < (int)ManualHandoverSessionLifecycleState.NoSession
+            || LifecycleStateValue > (int)ManualHandoverSessionLifecycleState.Retired
+            || RetiredSessionCountValue < 0
+            || RetiredSessionCountValue > RetiredSessionCapacity)
+        {
+            return false;
+        }
+
+        bool hasRetainedSession = SessionValid;
+        ManualHandoverTransportSnapshot retained = default;
+        if (hasRetainedSession && !TryReadSnapshot(out retained))
+        {
+            return false;
+        }
+
+        string[] retiredIds = new string[RetiredSessionCountValue];
+        for (int i = 0; i < retiredIds.Length; i++)
+        {
+            retiredIds[i] = RetiredSessionIdsValue.Get(i).ToString();
+        }
+
+        ManualHandoverSessionLifecycleSnapshot snapshot =
+            new ManualHandoverSessionLifecycleSnapshot(
+                (ManualHandoverSessionLifecycleState)LifecycleStateValue,
+                hasRetainedSession,
+                retained,
+                retiredIds);
+        return ManualHandoverSessionLifecycleContract.TryRestore(snapshot, out lifecycle);
     }
 
     private bool TryResolveConnectedParticipant(PlayerRef source, out SharedMRParticipantId participant)
@@ -285,6 +393,8 @@ public sealed class ManualHandoverSessionNetwork :
     }
     private static bool TrySetNetworkString(string value, out NetworkString<_64> encoded)
     { encoded = default; return encoded.Set(value); }
+    private static bool TrySetNetworkString(string value, out NetworkString<_128> encoded)
+    { encoded = default; return encoded.Set(value); }
 #else
     private void Awake() { Instance = this; }
 #endif
@@ -295,7 +405,32 @@ public sealed class ManualHandoverSessionNetwork :
     {
         snapshot = default;
 #if FUSION_WEAVER && FUSION2
-        return Instance != null && Instance.Object != null && Instance.TryReadSnapshot(out snapshot);
+        if (Instance == null || Instance.Object == null
+            || !Instance.TryReadLifecycleContract(
+                out ManualHandoverSessionLifecycleContract lifecycle)
+            || lifecycle.State != ManualHandoverSessionLifecycleState.Active)
+        {
+            return false;
+        }
+        snapshot = lifecycle.RetainedSession;
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    public static bool TryReadLifecycle(out ManualHandoverSessionLifecycleSnapshot snapshot)
+    {
+        snapshot = default;
+#if FUSION_WEAVER && FUSION2
+        if (Instance == null || Instance.Object == null
+            || !Instance.TryReadLifecycleContract(
+                out ManualHandoverSessionLifecycleContract lifecycle))
+        {
+            return false;
+        }
+        snapshot = lifecycle.CaptureSnapshot();
+        return true;
 #else
         return false;
 #endif

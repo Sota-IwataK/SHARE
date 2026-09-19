@@ -19,7 +19,8 @@ public enum ManualHandoverValidationResult
     RpcSenderMismatch = 14,
     AuthoritySequenceExhausted = 15,
     AuthorityStateInvalid = 16,
-    TransportCapacityExceeded = 17
+    TransportCapacityExceeded = 17,
+    SessionRetired = 18
 }
 
 /// <summary>Immutable run/trial-scoped giver and receiver assignment.</summary>

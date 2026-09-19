@@ -17,6 +17,12 @@ public sealed class ManualHandoverRuntimeProbeTests
     [TestCase("request-duplicate", ManualHandoverProbeCommand.DuplicateRequest, "fallback")]
     [TestCase("ready_wrong_object", ManualHandoverProbeCommand.WrongObjectReady, "fallback")]
     [TestCase("request-wrong-claim", ManualHandoverProbeCommand.WrongClaimedParticipantRequest, "fallback")]
+    [TestCase("retire", ManualHandoverProbeCommand.Retire, "fallback")]
+    [TestCase("dump-lifecycle", ManualHandoverProbeCommand.DumpLifecycle, "fallback")]
+    [TestCase("new-session-b|trial_02", ManualHandoverProbeCommand.InitializeNextCaseB, "trial_02")]
+    [TestCase("request-retired", ManualHandoverProbeCommand.SubmitRetiredRequest, "fallback")]
+    [TestCase("ready-retired", ManualHandoverProbeCommand.SubmitRetiredReady, "fallback")]
+    [TestCase("capacity-boundary|capacity_01", ManualHandoverProbeCommand.RunCapacityBoundary, "capacity_01")]
     public void CommandParserProducesExplicitCommand(
         string raw,
         ManualHandoverProbeCommand expected,
